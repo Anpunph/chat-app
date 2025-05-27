@@ -1,0 +1,16 @@
+[
+  {
+    "id": "1748339597912",
+    "nickname": "qwe",
+    "password": "$2b$10$.8yNBKIweIpN3EbRs644xer4PlCw7jedSrgj1FoWeSxGZcGENGvJK",
+    "createdAt": "2025-05-27T09:53:17.912Z",
+    "updatedAt": "2025-05-27T09:53:17.912Z"
+  },
+  {
+    "id": "1748348349634",
+    "nickname": "anpunph",
+    "password": "$2b$10$AwLGsPSIlre5.gSZQERV9u8zcBXqh5qaGdVZ1NU36u4GTVAEYfq96",
+    "createdAt": "2025-05-27T12:19:09.634Z",
+    "updatedAt": "2025-05-27T12:19:09.634Z"
+  }
+]

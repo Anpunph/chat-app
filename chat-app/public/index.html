@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络聊天室</title>
+    <!-- ElementUI Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app" class="chat-container">
+        <header class="chat-header">
+            <div class="header-left">
+                <h1>网络聊天室</h1>
+            </div>
+            <div class="header-right" v-if="user">
+                <span class="user-info">欢迎，{{ user.nickname }}</span>
+                <button class="header-btn" @click="showUserSettings = true" title="用户设置">⚙️</button>
+                <button class="header-btn" @click="showOnlineMembers = true" title="在线成员">👥</button>
+                <button class="header-btn" @click="handleLogout" title="退出登录">🚪</button>
+            </div>
+        </header>
+        <div class="chat-messages"></div>
+        <div class="chat-form-container">
+            <!-- Emoji Picker -->
+            <div id="emoji-picker" class="emoji-picker hidden">
+                <div class="emoji-grid">
+                    <span class="emoji" data-emoji="😀">😀</span>
+                    <span class="emoji" data-emoji="😂">😂</span>
+                    <span class="emoji" data-emoji="😍">😍</span>
+                    <span class="emoji" data-emoji="🤔">🤔</span>
+                    <span class="emoji" data-emoji="😎">😎</span>
+                    <span class="emoji" data-emoji="😢">😢</span>
+                    <span class="emoji" data-emoji="😡">😡</span>
+                    <span class="emoji" data-emoji="👍">👍</span>
+                    <span class="emoji" data-emoji="👎">👎</span>
+                    <span class="emoji" data-emoji="❤️">❤️</span>
+                    <span class="emoji" data-emoji="🎉">🎉</span>
+                    <span class="emoji" data-emoji="🔥">🔥</span>
+                    <span class="emoji" data-emoji="💯">💯</span>
+                    <span class="emoji" data-emoji="🚀">🚀</span>
+                    <span class="emoji" data-emoji="⭐">⭐</span>
+                    <span class="emoji" data-emoji="🌟">🌟</span>
+                </div>
+            </div>
+
+            <!-- Chat Input Form -->
+            <div class="input-container">
+                <button type="button" id="emoji-btn" class="action-btn" title="Add Emoji">😀</button>
+                <button type="button" id="file-btn" class="action-btn" title="Upload File">📎</button>
+                <input type="file" id="file-input" accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rar" style="display: none;">
+                <form id="chat-form">
+                    <input
+                        id="msg"
+                        type="text"
+                        placeholder="输入消息..."
+                        autocomplete="off"
+                    />
+                    <button type="submit" class="btn">Send</button>
+                </form>
+            </div>
+
+            <!-- File Upload Progress -->
+            <div id="upload-progress" class="upload-progress hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+                <span class="progress-text">Uploading...</span>
+            </div>
+        </div>
+
+        <!-- 用户设置对话框 -->
+        <div v-if="showUserSettings" class="modal-overlay" @click="showUserSettings = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>用户设置</h3>
+                    <button class="modal-close" @click="showUserSettings = false">×</button>
+                </div>
+                <div class="modal-body">
+                    <form @submit.prevent="handleUpdateUser">
+                        <div class="form-group">
+                            <label>当前昵称</label>
+                            <input type="text" v-model="userForm.nickname" placeholder="2-15个字符">
+                        </div>
+                        <div class="form-group">
+                            <label>当前密码（修改密码时必填）</label>
+                            <input type="password" v-model="userForm.oldPassword" placeholder="输入当前密码">
+                        </div>
+                        <div class="form-group">
+                            <label>新密码（可选）</label>
+                            <input type="password" v-model="userForm.newPassword" placeholder="至少6个字符">
+                        </div>
+                        <div class="form-group">
+                            <label>确认新密码</label>
+                            <input type="password" v-model="userForm.confirmPassword" placeholder="再次输入新密码">
+                        </div>
+                        <div class="modal-actions">
+                            <button type="button" class="btn-secondary" @click="showUserSettings = false">取消</button>
+                            <button type="submit" class="btn-primary" :disabled="updateLoading">
+                                {{ updateLoading ? '更新中...' : '保存' }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 在线成员对话框 -->
+        <div v-if="showOnlineMembers" class="modal-overlay" @click="showOnlineMembers = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>在线成员 ({{ onlineUsers.length }})</h3>
+                    <button class="modal-close" @click="showOnlineMembers = false">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="online-members-list">
+                        <div v-if="onlineUsers.length === 0" class="no-members">
+                            暂无在线成员
+                        </div>
+                        <div v-for="member in onlineUsers" :key="member.id" class="member-item">
+                            <div class="member-avatar">
+                                <span class="avatar-icon">👤</span>
+                            </div>
+                            <div class="member-info">
+                                <span class="member-name">{{ member.nickname }}</span>
+                                <span v-if="member.nickname === user.nickname" class="member-badge">（我）</span>
+                                <span class="member-status">在线</span>
+                            </div>
+                            <div class="member-indicator">
+                                <span class="online-dot"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" @click="showOnlineMembers = false">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 欢迎提示框 -->
+        <div id="welcome-toast" class="welcome-toast hidden">
+            <div class="welcome-content">
+                <span class="welcome-icon">👋</span>
+                <span class="welcome-text"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vue 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.8/dist/vue.global.js"></script>
+    <!-- ElementUI Plus JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.full.js"></script>
+    <script>
+        // 检查Vue和ElementUI Plus是否正确加载
+        console.log('Vue:', typeof Vue);
+        console.log('ElementPlus:', typeof ElementPlus);
+
+        // 如果主CDN失败，尝试备用CDN
+        if (typeof Vue === 'undefined') {
+            console.warn('主CDN Vue.js 加载失败，尝试备用CDN...');
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/vue@3/dist/vue.global.js';
+            script.onerror = function() {
+                alert('Vue.js 加载失败！请检查网络连接或尝试刷新页面。');
+            };
+            document.head.appendChild(script);
+        }
+
+        if (typeof ElementPlus === 'undefined') {
+            console.warn('主CDN ElementUI Plus 加载失败，尝试备用CDN...');
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/element-plus/dist/index.full.js';
+            script.onerror = function() {
+                console.warn('ElementUI Plus 加载失败，将使用基础样式');
+            };
+            document.head.appendChild(script);
+        }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
