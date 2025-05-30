@@ -1,0 +1,30 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "chat-app/server.js",
+            "use": "@vercel/node"
+        },
+        {
+            "src": "chat-app/public/**",
+            "use": "@vercel/static"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/socket.io/(.*)",
+            "dest": "chat-app/server.js"
+        },
+        {
+            "src": "/api/(.*)",
+            "dest": "chat-app/server.js"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "chat-app/public/$1"
+        }
+    ],
+    "env": {
+        "NODE_ENV": "production"
+    }
+}

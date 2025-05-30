@@ -1,3 +1,10 @@
+// 加载环境变量
+try {
+    require('dotenv').config();
+} catch (error) {
+    console.log('dotenv not loaded:', error.message);
+}
+
 const express = require('express');
 const http = require('http');
 const socketio = require('socket.io');
@@ -5,7 +12,14 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const session = require('express-session');
+const connectDB = require('./config/database');
 const database = require('./database');
+const jwt = require('jsonwebtoken');
+
+// 环境变量配置
+const isVercel = process.env.VERCEL === '1';
+// 使用标准连接字符串而不是 SRV 格式
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://demouser:demopass123@cluster0.k8xcdx1.mongodb.net:27017/chatapp';
 
 // 在线用户管理
 const onlineUsers = new Map(); // 存储在线用户信息
@@ -17,25 +31,75 @@ const rooms = new Map(); // 存储房间信息 {roomId: {name, description, crea
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server, {
-    pingTimeout: 60000, // 增加超时时间
-    pingInterval: 25000, // 调整心跳间隔
+    pingTimeout: 60000,
+    pingInterval: 25000,
     cors: {
-        origin: "*", // 在生产环境中应该限制为特定域名
+        origin: "*",
         methods: ["GET", "POST"]
     },
-    transports: ['websocket', 'polling'], // 优先使用WebSocket
-    maxHttpBufferSize: 10e6, // 10 MB
-    connectTimeout: 45000, // 连接超时时间
-    allowEIO3: true // 允许Engine.IO v3客户端连接
+    transports: ['websocket', 'polling'],
+    maxHttpBufferSize: 10e6,
+    connectTimeout: 45000,
+    allowEIO3: true
 });
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+// 使用更简单的会话处理方式
+let sessionConfig = {
+    secret: process.env.SESSION_SECRET || 'chat-app-secret-key-' + Date.now(),
+    name: 'sessionId',
+    cookie: {
+        secure: false, // 在开发环境中不需要HTTPS
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000, // 1天
+        sameSite: 'lax'
+    },
+    resave: true,
+    saveUninitialized: true
+};
+
+// 只有在非 Vercel 环境中使用 MongoDB 会话存储
+if (!isVercel) {
+    try {
+        const MongoDBStore = require('connect-mongodb-session')(session);
+        // 配置会话存储
+        const store = new MongoDBStore({
+            uri: MONGODB_URI,
+            collection: 'sessions'
+        });
+
+        // 捕获存储连接错误
+        store.on('error', function (error) {
+            console.error('会话存储错误:', error);
+        });
+
+        sessionConfig.store = store;
+    } catch (error) {
+        console.warn('MongoDB 会话存储配置失败，使用内存存储:', error);
+    }
 }
 
-// Configure multer for file uploads (memory storage - no files saved to disk)
+// Configure session middleware
+const sessionMiddleware = session(sessionConfig);
+
+// Use session middleware
+app.use(sessionMiddleware);
+
+// 在app.use(sessionMiddleware)之后添加安全头设置
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+});
+
+// Parse JSON bodies
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Set static folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Configure multer for file uploads (memory storage only)
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
@@ -55,37 +119,6 @@ const upload = multer({
         }
     }
 });
-
-// Configure session middleware
-const sessionMiddleware = session({
-    secret: 'chat-app-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: 'strict'
-    }
-});
-
-// Use session middleware
-app.use(sessionMiddleware);
-
-// 在app.use(sessionMiddleware)之后添加安全头设置
-app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('X-Frame-Options', 'DENY');
-    next();
-});
-
-// Parse JSON bodies
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Set static folder
-app.use(express.static(path.join(__dirname, 'public')));
 
 // File upload route (memory only - no disk storage)
 app.post('/upload', (req, res) => {
@@ -301,10 +334,17 @@ app.post('/api/login', async (req, res) => {
         console.log('验证结果:', result);
 
         if (result.success) {
-            req.session.user = result.user;
-        }
+            // 创建 JWT token
+            const token = jwt.sign(
+                { id: result.user.id, nickname: result.user.nickname },
+                process.env.JWT_SECRET || 'your-secret-key',
+                { expiresIn: '24h' }
+            );
 
-        res.json(result);
+            res.json({ success: true, token, user: result.user });
+        } else {
+            res.json(result);
+        }
     } catch (error) {
         console.error('登录错误:', error);
         res.status(500).json({ success: false, message: '服务器错误' });
@@ -313,21 +353,36 @@ app.post('/api/login', async (req, res) => {
 
 // 用户登出
 app.post('/api/logout', (req, res) => {
-    req.session.destroy((err) => {
-        if (err) {
-            return res.status(500).json({ success: false, message: '登出失败' });
-        }
+    if (req.session) {
+        req.session.destroy((err) => {
+            if (err) {
+                return res.status(500).json({ success: false, message: '登出失败' });
+            }
+            res.clearCookie('sessionId');
+            res.json({ success: true, message: '登出成功' });
+        });
+    } else {
         res.json({ success: true, message: '登出成功' });
-    });
+    }
 });
 
-// 获取当前用户信息
-app.get('/api/user', (req, res) => {
-    if (req.session.user) {
-        res.json({ success: true, user: req.session.user });
-    } else {
-        res.status(401).json({ success: false, message: '未登录' });
+// 验证中间件
+function authMiddleware(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ success: false, message: '未登录' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        req.user = decoded;
+        next();
+    } catch (err) {
+        return res.status(401).json({ success: false, message: '会话无效' });
     }
+}
+
+// 使用中间件保护路由
+app.get('/api/user', authMiddleware, (req, res) => {
+    res.json({ success: true, user: req.user });
 });
 
 // 更新用户信息
@@ -378,6 +433,55 @@ app.post('/api/user/update', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('更新用户信息错误:', error);
+        res.status(500).json({ success: false, message: '服务器错误' });
+    }
+});
+
+// 用于测试的手动设置会话
+app.post('/api/debug/set-session', async (req, res) => {
+    try {
+        const { nickname, password } = req.body;
+
+        if (!nickname || !password) {
+            return res.status(400).json({ success: false, message: '请提供昵称和密码' });
+        }
+
+        // 验证用户
+        const result = await database.loginUser(nickname, password);
+
+        if (result.success) {
+            // 强制设置会话
+            req.session.regenerate(function (err) {
+                if (err) {
+                    console.error('会话重新生成失败:', err);
+                    return res.status(500).json({ success: false, message: '设置会话失败' });
+                }
+
+                req.session.user = result.user;
+                console.log('DEBUG: 已手动设置会话用户:', req.session.user);
+                console.log('DEBUG: 会话ID:', req.session.id);
+
+                // 确保会话立即保存
+                req.session.save(function (err) {
+                    if (err) {
+                        console.error('会话保存失败:', err);
+                        return res.status(500).json({ success: false, message: '会话保存失败' });
+                    }
+                    console.log('DEBUG: 会话已保存:', req.session);
+                    res.json({
+                        success: true,
+                        message: '会话已设置',
+                        user: result.user,
+                        sessionID: req.session.id,
+                        cookie: req.session.cookie
+                    });
+                });
+            });
+        } else {
+            res.status(401).json({ success: false, message: '用户验证失败' });
+        }
+    } catch (error) {
+        console.error('设置会话错误:', error);
         res.status(500).json({ success: false, message: '服务器错误' });
     }
 });
@@ -949,48 +1053,52 @@ io.on('connection', socket => {
     });
 });
 
-// 创建logs目录（在服务器启动代码之前）
-const logsDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
-}
+// 日志处理
+const logError = (error, type = 'error') => {
+    console.error(`[${type}]`, error);
+    if (!isVercel) {
+        const logsDir = path.join(__dirname, 'logs');
+        if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+        }
+        fs.appendFileSync(
+            path.join(logsDir, `${type}.log`),
+            `[${new Date().toISOString()}] ${error.message || error}\n${error.stack || ''}\n\n`
+        );
+    }
+};
 
 // 未捕获的异常处理
 process.on('uncaughtException', (error) => {
-    console.error('未捕获的异常:', error);
-    // 记录错误日志
-    fs.appendFileSync(
-        path.join(__dirname, 'logs', 'error.log'),
-        `[${new Date().toISOString()}] Uncaught Exception: ${error.message}\n${error.stack}\n\n`
-    );
-});
-
-// Promise 拒绝处理
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('未处理的Promise拒绝:', reason);
-    // 记录错误日志
-    fs.appendFileSync(
-        path.join(__dirname, 'logs', 'error.log'),
-        `[${new Date().toISOString()}] Unhandled Rejection: ${reason}\n\n`
-    );
+    logError(error, 'uncaught');
 });
 
 // 在所有路由之后、server.listen之前添加API错误处理中间件
 app.use((err, req, res, next) => {
-    console.error('API错误:', err);
-
-    // 记录错误日志
-    fs.appendFileSync(
-        path.join(__dirname, 'logs', 'api-error.log'),
-        `[${new Date().toISOString()}] ${req.method} ${req.url}: ${err.message}\n${err.stack}\n\n`
-    );
-
+    logError(err, 'api');
     res.status(err.status || 500).json({
         success: false,
         message: process.env.NODE_ENV === 'production' ? '服务器错误' : err.message
     });
 });
 
-const PORT = process.env.PORT || 3000;
+// 连接数据库并启动服务器
+const startServer = async () => {
+    try {
+        // 连接到MongoDB
+        await connectDB();
 
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+        const PORT = process.env.PORT || 3000;
+        server.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+            console.log('Environment:', process.env.NODE_ENV);
+            console.log('Vercel:', isVercel ? 'Yes' : 'No');
+            console.log('MongoDB connected');
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+};
+
+startServer();

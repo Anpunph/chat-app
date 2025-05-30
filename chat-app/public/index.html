@@ -1001,6 +1001,85 @@
             };
             document.head.appendChild(script);
         }
+
+        // 检查用户是否已登录
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/user', {
+                    credentials: 'include'
+                });
+
+                console.log('会话检查响应:', response);
+
+                // 如果会话检查失败，尝试使用存储的用户信息手动设置会话
+                if (!response.ok) {
+                    console.log('会话检查失败，尝试手动恢复会话');
+
+                    // 检查本地存储中是否有用户信息
+                    const savedUser = localStorage.getItem('chatapp_user');
+                    const savedPassword = localStorage.getItem('chatapp_password');
+
+                    if (savedUser && savedPassword) {
+                        console.log('尝试使用本地存储的凭据重新建立会话');
+
+                        try {
+                            const manualSession = await fetch('/api/debug/set-session', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    nickname: savedUser,
+                                    password: savedPassword
+                                }),
+                                credentials: 'include'
+                            });
+
+                            if (manualSession.ok) {
+                                const sessionData = await manualSession.json();
+                                console.log('手动会话恢复结果:', sessionData);
+
+                                if (sessionData.success) {
+                                    console.log('会话已手动恢复');
+                                    return true;
+                                }
+                            }
+                        } catch (error) {
+                            console.error('手动恢复会话失败:', error);
+                        }
+                    }
+
+                    // 未登录，重定向到登录页面
+                    console.log('用户未登录，正在重定向到登录页面...');
+                    window.location.href = '/auth.html';
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                console.error('检查认证状态失败:', error);
+                window.location.href = '/auth.html';
+                return false;
+            }
+        }
+
+        // 页面加载后检查登录状态
+        window.addEventListener('DOMContentLoaded', async () => {
+            const user = await checkAuth();
+            if (!user) return;
+
+            // 如果已登录，初始化聊天应用
+            console.log('初始化聊天应用...');
+
+            // 隐藏加载指示器
+            const pageLoader = document.getElementById('pageLoader');
+            if (pageLoader) {
+                pageLoader.classList.add('hidden');
+                setTimeout(() => {
+                    pageLoader.style.display = 'none';
+                }, 500);
+            }
+        });
     </script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/main.js"></script>

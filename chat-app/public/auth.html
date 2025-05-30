@@ -500,6 +500,9 @@
                         <i class="fas fa-lock input-icon"></i>
                         <i class="fas fa-eye toggle-password" @click="togglePasswordVisibility('login')"></i>
                     </div>
+                    <el-form-item>
+                        <el-checkbox v-model="loginForm.remember">记住我</el-checkbox>
+                    </el-form-item>
                     <button type="submit" class="auth-button" :disabled="loginLoading">
                         <i class="fas fa-sign-in-alt" v-if="!loginLoading"></i>
                         {{ loginLoading ? '登录中...' : '登录' }}

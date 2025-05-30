@@ -9,7 +9,8 @@ createApp({
             registerLoading: false,
             loginForm: {
                 nickname: '',
-                password: ''
+                password: '',
+                remember: false
             },
             registerForm: {
                 nickname: '',
@@ -93,13 +94,25 @@ createApp({
 
         async checkLoginStatus() {
             try {
-                const response = await fetch('/api/user');
+                const response = await fetch('/api/user', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+                    }
+                });
+
+                console.log('检查登录状态响应:', response);
+
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.success) {
+                    console.log('检查登录状态数据:', data);
+
+                    if (data.success && data.user) {
+                        console.log('用户已登录:', data.user);
                         // 已登录，跳转到聊天室
                         window.location.href = '/';
                     }
+                } else {
+                    console.log('用户未登录');
                 }
             } catch (error) {
                 console.log('检查登录状态失败:', error);
@@ -138,10 +151,12 @@ createApp({
                     body: JSON.stringify({
                         nickname: this.loginForm.nickname,
                         password: this.loginForm.password
-                    })
+                    }),
+                    credentials: 'include' // 确保包含cookies
                 });
 
                 const data = await response.json();
+                console.log('登录响应:', data);
 
                 if (data.success) {
                     ElMessage({
@@ -155,23 +170,68 @@ createApp({
                         loginButton.style.background = 'linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%)';
                     }
 
+                    // 保存用户凭据到本地存储（用于会话恢复）
+                    if (this.loginForm.remember) {
+                        localStorage.setItem('chatapp_user', this.loginForm.nickname);
+                        localStorage.setItem('chatapp_password', this.loginForm.password);
+                        console.log('已保存用户凭据到本地存储');
+                    } else {
+                        // 仅保存用户名，不保存密码
+                        localStorage.setItem('chatapp_user', this.loginForm.nickname);
+                        localStorage.removeItem('chatapp_password');
+                    }
+
+                    // 检查会话是否已设置
+                    try {
+                        const checkSession = await fetch('/api/user', {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+                            }
+                        });
+                        const sessionData = await checkSession.json();
+                        console.log('会话检查结果:', sessionData);
+
+                        if (!sessionData.success) {
+                            console.warn('会话未正确设置，尝试手动设置会话...');
+                            // 尝试手动设置会话
+                            const manualSession = await fetch('/api/debug/set-session', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    nickname: this.loginForm.nickname,
+                                    password: this.loginForm.password
+                                }),
+                                credentials: 'include'
+                            });
+
+                            const manualSessionData = await manualSession.json();
+                            console.log('手动设置会话结果:', manualSessionData);
+
+                            if (!manualSessionData.success) {
+                                ElMessage({
+                                    message: '会话设置失败，请重试',
+                                    type: 'error'
+                                });
+                                return;
+                            }
+                        }
+                    } catch (sessionError) {
+                        console.warn('会话检查失败:', sessionError);
+                    }
+
                     // 延迟跳转，让用户看到成功消息
                     setTimeout(() => {
                         // 添加页面过渡效果
                         document.body.classList.add('page-transition');
-
-                        // 预加载主页
-                        const preloadLink = document.createElement('link');
-                        preloadLink.rel = 'preload';
-                        preloadLink.href = '/';
-                        preloadLink.as = 'document';
-                        document.head.appendChild(preloadLink);
-
-                        // 延迟后跳转
-                        setTimeout(() => {
-                            window.location.href = '/';
-                        }, 300);
+                        window.location.href = '/';
                     }, 800);
+
+                    // 登录成功时存储 token
+                    if (data.success) {
+                        localStorage.setItem('auth_token', data.token);
+                    }
                 } else {
                     ElMessage({
                         message: data.message || '登录失败',

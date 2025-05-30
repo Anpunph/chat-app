@@ -1,104 +1,103 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const User = require('./models/User');
+const Message = require('./models/Message');
+const Room = require('./models/Room');
 
 class Database {
     constructor() {
-        this.dbPath = path.join(__dirname, 'data', 'users.json');
-        this.messagesPath = path.join(__dirname, 'data', 'messages.json');
-        this.ensureDataDirectory();
-        this.users = this.loadUsers();
-        this.messages = this.loadMessages();
+        this.isVercel = process.env.VERCEL === '1';
+
+        // 内存存储
+        this.inMemoryUsers = [];
+        this.inMemoryMessages = [];
+        this.inMemoryRooms = [];
+
+        // 添加一个默认用户方便测试
+        this.addDefaultUser();
     }
 
-    ensureDataDirectory() {
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-        }
-    }
-
-    loadUsers() {
+    // 添加默认用户
+    async addDefaultUser() {
         try {
-            if (fs.existsSync(this.dbPath)) {
-                const data = fs.readFileSync(this.dbPath, 'utf8');
-                return JSON.parse(data);
+            // 检查默认用户是否已存在
+            if (this.isVercel) {
+                if (!this.inMemoryUsers.find(u => u.nickname === 'demo')) {
+                    await this.registerUser('demo', 'demo123');
+                    console.log('已创建默认用户: demo/demo123');
+                }
+            } else {
+                const User = require('./models/User');
+                const existingUser = await User.findOne({ nickname: 'demo' });
+                if (!existingUser) {
+                    const user = new User({
+                        nickname: 'demo',
+                        password: 'demo123'
+                    });
+                    await user.save();
+                    console.log('已创建默认用户: demo/demo123');
+                }
             }
         } catch (error) {
-            console.error('加载用户数据失败:', error);
-        }
-        return [];
-    }
-
-    loadMessages() {
-        try {
-            if (fs.existsSync(this.messagesPath)) {
-                const data = fs.readFileSync(this.messagesPath, 'utf8');
-                return JSON.parse(data);
-            }
-        } catch (error) {
-            console.error('加载消息数据失败:', error);
-        }
-        return [];
-    }
-
-    saveUsers() {
-        try {
-            fs.writeFileSync(this.dbPath, JSON.stringify(this.users, null, 2));
-            // 每10次保存操作执行一次备份
-            if (Math.random() < 0.1) {
-                this.backupData();
-            }
-            return true;
-        } catch (error) {
-            console.error('保存用户数据失败:', error);
-            return false;
+            console.error('创建默认用户失败:', error);
         }
     }
 
-    saveMessages() {
-        try {
-            fs.writeFileSync(this.messagesPath, JSON.stringify(this.messages, null, 2));
-            return true;
-        } catch (error) {
-            console.error('保存消息数据失败:', error);
-            return false;
-        }
-    }
-
-    // 注册新用户
+    // 用户注册
     async registerUser(nickname, password) {
         try {
-            // 检查昵称是否已存在
-            if (this.users.find(user => user.nickname === nickname)) {
-                return { success: false, message: '昵称已存在' };
-            }
+            if (this.isVercel) {
+                // 内存存储实现
+                if (this.inMemoryUsers.find(u => u.nickname === nickname)) {
+                    return { success: false, message: '昵称已存在' };
+                }
 
-            // 加密密码
-            const hashedPassword = await bcrypt.hash(password, 10);
+                const bcrypt = require('bcryptjs');
+                const hashedPassword = await bcrypt.hash(password, 10);
 
-            // 创建新用户
-            const newUser = {
-                id: Date.now().toString(),
-                nickname,
-                password: hashedPassword,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
+                const newUser = {
+                    _id: Date.now().toString(),
+                    nickname,
+                    password: hashedPassword,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                };
 
-            this.users.push(newUser);
+                this.inMemoryUsers.push(newUser);
 
-            if (this.saveUsers()) {
                 return {
                     success: true,
                     message: '注册成功',
                     user: {
-                        id: newUser.id,
+                        id: newUser._id,
                         nickname: newUser.nickname
                     }
                 };
             } else {
-                return { success: false, message: '保存用户数据失败' };
+                // MongoDB 实现
+                // 检查昵称是否已存在
+                const existingUser = await User.findOne({ nickname });
+                if (existingUser) {
+                    return { success: false, message: '昵称已存在' };
+                }
+
+                // 创建新用户
+                const user = new User({
+                    nickname,
+                    password
+                });
+
+                await user.save();
+
+                return {
+                    success: true,
+                    message: '注册成功',
+                    user: {
+                        id: user._id,
+                        nickname: user.nickname
+                    }
+                };
             }
         } catch (error) {
             console.error('注册用户失败:', error);
@@ -109,24 +108,56 @@ class Database {
     // 用户登录
     async loginUser(nickname, password) {
         try {
-            const user = this.users.find(u => u.nickname === nickname);
-            if (!user) {
-                return { success: false, message: '昵称或密码错误' };
-            }
-
-            const isPasswordValid = await bcrypt.compare(password, user.password);
-            if (!isPasswordValid) {
-                return { success: false, message: '昵称或密码错误' };
-            }
-
-            return {
-                success: true,
-                message: '登录成功',
-                user: {
-                    id: user.id,
-                    nickname: user.nickname
+            if (this.isVercel) {
+                // 内存存储实现
+                const user = this.inMemoryUsers.find(u => u.nickname === nickname);
+                if (!user) {
+                    return { success: false, message: '昵称或密码错误' };
                 }
-            };
+
+                const bcrypt = require('bcryptjs');
+                const isPasswordValid = await bcrypt.compare(password, user.password);
+                if (!isPasswordValid) {
+                    return { success: false, message: '昵称或密码错误' };
+                }
+
+                user.lastLogin = new Date();
+                user.status = 'online';
+
+                return {
+                    success: true,
+                    message: '登录成功',
+                    user: {
+                        id: user._id,
+                        nickname: user.nickname
+                    }
+                };
+            } else {
+                // MongoDB 实现
+                const user = await User.findOne({ nickname });
+                if (!user) {
+                    return { success: false, message: '昵称或密码错误' };
+                }
+
+                const isPasswordValid = await user.comparePassword(password);
+                if (!isPasswordValid) {
+                    return { success: false, message: '昵称或密码错误' };
+                }
+
+                // 更新最后登录时间和状态
+                user.lastLogin = new Date();
+                user.status = 'online';
+                await user.save();
+
+                return {
+                    success: true,
+                    message: '登录成功',
+                    user: {
+                        id: user._id,
+                        nickname: user.nickname
+                    }
+                };
+            }
         } catch (error) {
             console.error('用户登录失败:', error);
             return { success: false, message: '登录失败' };
@@ -134,53 +165,117 @@ class Database {
     }
 
     // 根据ID获取用户
-    getUserById(id) {
-        const user = this.users.find(u => u.id === id);
-        if (user) {
-            return {
-                id: user.id,
-                nickname: user.nickname
-            };
+    async getUserById(id) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const user = this.inMemoryUsers.find(u => u._id.toString() === id.toString());
+                if (user) {
+                    return {
+                        success: true,
+                        user: {
+                            id: user._id,
+                            nickname: user.nickname
+                        }
+                    };
+                }
+            } else {
+                // MongoDB 实现
+                const user = await User.findById(id);
+                if (user) {
+                    return {
+                        success: true,
+                        user: {
+                            id: user._id,
+                            nickname: user.nickname
+                        }
+                    };
+                }
+            }
+            console.log('未找到用户ID:', id);
+            return { success: false, message: '用户不存在' };
+        } catch (error) {
+            console.error('获取用户失败:', error);
+            return { success: false, message: '获取用户失败' };
         }
-        return null;
     }
 
     // 更新用户信息
     async updateUser(id, updates) {
         try {
-            const userIndex = this.users.findIndex(u => u.id === id);
-            if (userIndex === -1) {
-                return { success: false, message: '用户不存在' };
-            }
-
-            const user = this.users[userIndex];
-
-            // 如果要更新昵称，检查是否已存在
-            if (updates.nickname && updates.nickname !== user.nickname) {
-                if (this.users.find(u => u.nickname === updates.nickname && u.id !== id)) {
-                    return { success: false, message: '昵称已存在' };
+            if (this.isVercel) {
+                // 内存存储实现
+                const userIndex = this.inMemoryUsers.findIndex(u => u._id.toString() === id.toString());
+                if (userIndex === -1) {
+                    return { success: false, message: '用户不存在' };
                 }
-                user.nickname = updates.nickname;
-            }
 
-            // 如果要更新密码
-            if (updates.password) {
-                user.password = await bcrypt.hash(updates.password, 10);
-            }
+                const user = this.inMemoryUsers[userIndex];
 
-            user.updatedAt = new Date().toISOString();
+                // 如果要更新昵称，检查是否已存在
+                if (updates.nickname && updates.nickname !== user.nickname) {
+                    const existingUser = this.inMemoryUsers.find(u =>
+                        u.nickname === updates.nickname &&
+                        u._id.toString() !== id.toString()
+                    );
 
-            if (this.saveUsers()) {
+                    if (existingUser) {
+                        return { success: false, message: '昵称已存在' };
+                    }
+
+                    user.nickname = updates.nickname;
+                }
+
+                // 如果要更新密码
+                if (updates.password) {
+                    const bcrypt = require('bcryptjs');
+                    user.password = await bcrypt.hash(updates.password, 10);
+                }
+
+                user.updatedAt = new Date();
+
                 return {
                     success: true,
                     message: '更新成功',
                     user: {
-                        id: user.id,
+                        id: user._id,
                         nickname: user.nickname
                     }
                 };
             } else {
-                return { success: false, message: '保存数据失败' };
+                // MongoDB 实现
+                const user = await User.findById(id);
+                if (!user) {
+                    return { success: false, message: '用户不存在' };
+                }
+
+                // 如果要更新昵称，检查是否已存在
+                if (updates.nickname && updates.nickname !== user.nickname) {
+                    const existingUser = await User.findOne({
+                        nickname: updates.nickname,
+                        _id: { $ne: id }
+                    });
+                    if (existingUser) {
+                        return { success: false, message: '昵称已存在' };
+                    }
+                    user.nickname = updates.nickname;
+                }
+
+                // 如果要更新密码
+                if (updates.password) {
+                    user.password = updates.password;
+                }
+
+                await user.save();
+
+                return {
+                    success: true,
+                    message: '更新成功',
+                    user: {
+                        id: user._id,
+                        nickname: user.nickname
+                    }
+                };
             }
         } catch (error) {
             console.error('更新用户失败:', error);
@@ -191,11 +286,22 @@ class Database {
     // 验证旧密码
     async verifyPassword(id, password) {
         try {
-            const user = this.users.find(u => u.id === id);
-            if (!user) {
-                return false;
+            if (this.isVercel) {
+                // 内存存储实现
+                const user = this.inMemoryUsers.find(u => u._id.toString() === id.toString());
+                if (!user) {
+                    return false;
+                }
+                const bcrypt = require('bcryptjs');
+                return await bcrypt.compare(password, user.password);
+            } else {
+                // MongoDB 实现
+                const user = await User.findById(id);
+                if (!user) {
+                    return false;
+                }
+                return await user.comparePassword(password);
             }
-            return await bcrypt.compare(password, user.password);
         } catch (error) {
             console.error('验证密码失败:', error);
             return false;
@@ -243,28 +349,297 @@ class Database {
     }
 
     // 保存消息
-    saveMessage(message) {
+    async saveMessage(message) {
         try {
-            // 限制消息历史记录数量，只保留最近1000条
-            if (this.messages.length >= 1000) {
-                this.messages = this.messages.slice(-999);
+            if (this.isVercel) {
+                // 内存存储实现
+                const newMessage = {
+                    _id: Date.now().toString(),
+                    roomId: message.roomId,
+                    sender: message.sender,
+                    type: message.type,
+                    content: message.text,
+                    fileInfo: message.fileInfo,
+                    createdAt: new Date()
+                };
+
+                // 最多保存1000条消息
+                if (this.inMemoryMessages.length >= 1000) {
+                    this.inMemoryMessages.shift(); // 移除最旧的消息
+                }
+
+                this.inMemoryMessages.push(newMessage);
+                return true;
+            } else {
+                // MongoDB 实现
+                const newMessage = new Message({
+                    roomId: message.roomId,
+                    sender: message.sender,
+                    type: message.type,
+                    content: message.text,
+                    fileInfo: message.fileInfo
+                });
+
+                await newMessage.save();
+                return true;
             }
-
-            this.messages.push(message);
-
-            // 异步保存，不阻塞主线程
-            setImmediate(() => this.saveMessages());
-
-            return true;
         } catch (error) {
             console.error('保存消息失败:', error);
             return false;
         }
     }
 
-    // 获取最近的消息
-    getRecentMessages(limit = 50) {
-        return this.messages.slice(-limit);
+    // 获取房间最近消息
+    async getRoomMessages(roomId, limit = 50) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const messages = this.inMemoryMessages
+                    .filter(m => m.roomId === roomId)
+                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                    .slice(0, limit);
+
+                // 查找发送者
+                const messagesWithSender = messages.map(m => {
+                    const sender = this.inMemoryUsers.find(u => u._id.toString() === m.sender.toString());
+                    return {
+                        ...m,
+                        sender: { nickname: sender ? sender.nickname : '未知用户' }
+                    };
+                });
+
+                return messagesWithSender.reverse();
+            } else {
+                // MongoDB 实现
+                const messages = await Message.find({ roomId })
+                    .sort({ createdAt: -1 })
+                    .limit(limit)
+                    .populate('sender', 'nickname')
+                    .lean();
+
+                return messages.reverse();
+            }
+        } catch (error) {
+            console.error('获取房间消息失败:', error);
+            return [];
+        }
+    }
+
+    // 创建房间
+    async createRoom(name, description, userId) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const room = {
+                    _id: Date.now().toString(),
+                    name,
+                    description: description || '',
+                    createdBy: userId,
+                    users: [userId],
+                    createdAt: new Date(),
+                    isActive: true,
+                    lastActivity: new Date()
+                };
+
+                this.inMemoryRooms.push(room);
+
+                return {
+                    success: true,
+                    room: {
+                        id: room._id,
+                        name: room.name,
+                        description: room.description,
+                        createdBy: userId,
+                        createdAt: room.createdAt
+                    }
+                };
+            } else {
+                // MongoDB 实现
+                const room = new Room({
+                    name,
+                    description,
+                    createdBy: userId,
+                    users: [userId]
+                });
+
+                await room.save();
+                return {
+                    success: true,
+                    room: {
+                        id: room._id,
+                        name: room.name,
+                        description: room.description,
+                        createdBy: userId,
+                        createdAt: room.createdAt
+                    }
+                };
+            }
+        } catch (error) {
+            console.error('创建房间失败:', error);
+            return { success: false, message: '创建房间失败' };
+        }
+    }
+
+    // 获取所有房间
+    async getRooms() {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                return this.inMemoryRooms
+                    .filter(room => room.isActive)
+                    .map(room => {
+                        // 查找创建者和用户信息
+                        const createdByUser = this.inMemoryUsers.find(u => u._id.toString() === room.createdBy.toString());
+                        const users = room.users.map(userId => {
+                            const user = this.inMemoryUsers.find(u => u._id.toString() === userId.toString());
+                            return user ? { id: user._id, nickname: user.nickname } : null;
+                        }).filter(Boolean);
+
+                        return {
+                            id: room._id,
+                            name: room.name,
+                            description: room.description,
+                            createdBy: createdByUser ? createdByUser.nickname : '未知用户',
+                            createdAt: room.createdAt,
+                            userCount: users.length,
+                            users
+                        };
+                    })
+                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            } else {
+                // MongoDB 实现
+                const rooms = await Room.find({ isActive: true })
+                    .populate('createdBy', 'nickname')
+                    .populate('users', 'nickname')
+                    .sort({ createdAt: -1 })
+                    .lean();
+
+                return rooms.map(room => ({
+                    id: room._id,
+                    name: room.name,
+                    description: room.description,
+                    createdBy: room.createdBy.nickname,
+                    createdAt: room.createdAt,
+                    userCount: room.users.length,
+                    users: room.users.map(user => ({
+                        id: user._id,
+                        nickname: user.nickname
+                    }))
+                }));
+            }
+        } catch (error) {
+            console.error('获取房间列表失败:', error);
+            return [];
+        }
+    }
+
+    // 加入房间
+    async joinRoom(roomId, userId) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const room = this.inMemoryRooms.find(r => r._id.toString() === roomId.toString());
+                if (!room) {
+                    return { success: false, message: '房间不存在' };
+                }
+
+                if (!room.users.includes(userId)) {
+                    room.users.push(userId);
+                    room.lastActivity = new Date();
+                }
+
+                return { success: true, message: '加入房间成功' };
+            } else {
+                // MongoDB 实现
+                const room = await Room.findById(roomId);
+                if (!room) {
+                    return { success: false, message: '房间不存在' };
+                }
+
+                if (!room.users.includes(userId)) {
+                    room.users.push(userId);
+                    room.lastActivity = new Date();
+                    await room.save();
+                }
+
+                return { success: true, message: '加入房间成功' };
+            }
+        } catch (error) {
+            console.error('加入房间失败:', error);
+            return { success: false, message: '加入房间失败' };
+        }
+    }
+
+    // 离开房间
+    async leaveRoom(roomId, userId) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const room = this.inMemoryRooms.find(r => r._id.toString() === roomId.toString());
+                if (!room) {
+                    return { success: false, message: '房间不存在' };
+                }
+
+                room.users = room.users.filter(id => id.toString() !== userId.toString());
+                room.lastActivity = new Date();
+
+                return { success: true, message: '离开房间成功' };
+            } else {
+                // MongoDB 实现
+                const room = await Room.findById(roomId);
+                if (!room) {
+                    return { success: false, message: '房间不存在' };
+                }
+
+                room.users = room.users.filter(id => id.toString() !== userId.toString());
+                room.lastActivity = new Date();
+                await room.save();
+
+                return { success: true, message: '离开房间成功' };
+            }
+        } catch (error) {
+            console.error('离开房间失败:', error);
+            return { success: false, message: '离开房间失败' };
+        }
+    }
+
+    // 删除房间
+    async deleteRoom(roomId, userId) {
+        try {
+            if (this.isVercel) {
+                // 内存存储实现
+                const roomIndex = this.inMemoryRooms.findIndex(r =>
+                    r._id.toString() === roomId.toString() &&
+                    r.createdBy.toString() === userId.toString()
+                );
+
+                if (roomIndex === -1) {
+                    return { success: false, message: '房间不存在或无权限删除' };
+                }
+
+                this.inMemoryRooms[roomIndex].isActive = false;
+
+                return { success: true, message: '房间删除成功' };
+            } else {
+                // MongoDB 实现
+                const room = await Room.findOne({
+                    _id: roomId,
+                    createdBy: userId
+                });
+
+                if (!room) {
+                    return { success: false, message: '房间不存在或无权限删除' };
+                }
+
+                room.isActive = false;
+                await room.save();
+
+                return { success: true, message: '房间删除成功' };
+            }
+        } catch (error) {
+            console.error('删除房间失败:', error);
+            return { success: false, message: '删除房间失败' };
+        }
     }
 }
 

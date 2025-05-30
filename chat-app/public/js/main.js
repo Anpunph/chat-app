@@ -274,7 +274,7 @@ const app = createApp({
             // 连接Socket并传递用户信息
             this.socket = io({
                 auth: {
-                    user: this.user
+                    token: localStorage.getItem('auth_token')
                 },
                 reconnection: true,
                 reconnectionAttempts: 10,
