@@ -8,6 +8,7 @@ const app = createApp({
             user: null,
             showUserSettings: false,
             showOnlineMembers: false,
+            showRoomSelector: false,
             onlineUsers: [],
             updateLoading: false,
             userForm: {
@@ -15,8 +16,41 @@ const app = createApp({
                 oldPassword: '',
                 newPassword: '',
                 confirmPassword: ''
-            }
+            },
+            rooms: [],
+            roomForm: {
+                name: '',
+                description: ''
+            },
+            createRoomLoading: false,
+            selectedRoom: null,
+            showCreateRoom: false,
+            searchQuery: '',
+            showDeleteConfirm: false,
+            roomToDelete: null
         };
+    },
+    computed: {
+        filteredRooms() {
+            if (!this.searchQuery) return this.rooms;
+
+            const query = this.searchQuery.toLowerCase().trim();
+            return this.rooms.filter(room => {
+                // 按房间名称搜索
+                const nameMatch = room.name.toLowerCase().includes(query);
+
+                // 按房间ID搜索
+                const idMatch = room.id.toLowerCase().includes(query);
+
+                // 按描述搜索
+                const descMatch = room.description && room.description.toLowerCase().includes(query);
+
+                // 按创建者搜索
+                const creatorMatch = room.createdBy && room.createdBy.toLowerCase().includes(query);
+
+                return nameMatch || idMatch || descMatch || creatorMatch;
+            });
+        }
     },
     async mounted() {
         console.log('Vue应用已挂载');
@@ -35,6 +69,7 @@ const app = createApp({
                     if (data.success) {
                         this.user = data.user;
                         this.userForm.nickname = data.user.nickname;
+                        this.showRoomSelector = true;
                     } else {
                         // 未登录，跳转到登录页面
                         window.location.href = '/auth.html';
@@ -227,11 +262,18 @@ const app = createApp({
             this.socket = io({
                 auth: {
                     user: this.user
-                }
+                },
+                reconnection: true,
+                reconnectionAttempts: 10,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                timeout: 30000,
+                forceNew: false,
+                transports: ['websocket', 'polling']
             });
 
             this.socket.on('connect', () => {
-                console.log('Socket连接成功');
+                console.log('Socket连接成功, ID:', this.socket.id);
                 // 连接成功后发送用户信息
                 this.socket.emit('userJoin', this.user);
             });
@@ -240,10 +282,58 @@ const app = createApp({
                 console.log('Socket连接断开');
             });
 
+            this.socket.on('connect_error', (error) => {
+                console.error('Socket连接错误:', error);
+            });
+
+            this.socket.on('connect_timeout', () => {
+                console.error('Socket连接超时');
+            });
+
+            this.socket.on('reconnect', (attemptNumber) => {
+                console.log(`Socket重连成功，尝试次数: ${attemptNumber}`);
+            });
+
+            this.socket.on('reconnect_attempt', (attemptNumber) => {
+                console.log(`Socket尝试重连，次数: ${attemptNumber}`);
+            });
+
+            this.socket.on('reconnect_error', (error) => {
+                console.error('Socket重连错误:', error);
+            });
+
+            this.socket.on('reconnect_failed', () => {
+                console.error('Socket重连失败');
+                ElMessage({
+                    message: '服务器连接失败，请刷新页面重试',
+                    type: 'error',
+                    duration: 0,
+                    showClose: true
+                });
+            });
+
             // 监听在线用户列表更新
             this.socket.on('onlineUsers', (users) => {
                 console.log('收到在线用户列表:', users);
                 this.onlineUsers = users;
+            });
+
+            // 监听房间删除事件
+            this.socket.on('roomDeleted', (data) => {
+                console.log('收到房间删除通知:', data);
+
+                // 如果当前在被删除的房间中，则返回房间列表
+                if (this.selectedRoom && this.selectedRoom.id === data.roomId) {
+                    this.selectedRoom = null;
+                    this.showRoomSelector = true;
+                    this.chatMessages.innerHTML = '';
+
+                    // 显示提示
+                    this.showSystemToast(`房间 "${data.roomName}" 已被创建者删除`);
+                }
+
+                // 刷新房间列表
+                this.refreshRooms();
             });
 
             // Message from server
@@ -276,23 +366,20 @@ const app = createApp({
         },
 
         setupEventListeners() {
-            // Message submit
+            // 使用防抖处理消息发送
+            this.sendMessageDebounced = this.debounce((msg) => {
+                console.log('发送消息到服务器:', msg);
+                this.socket.emit('chatMessage', msg);
+            }, 300);
+
+            // 修改Message submit事件处理
             this.chatForm.addEventListener('submit', (e) => {
                 e.preventDefault();
-
-                // Get message text
                 const msg = e.target.elements.msg.value.trim();
-                console.log('准备发送消息:', msg);
-
                 if (msg) {
-                    // Emit message to server
-                    console.log('发送消息到服务器:', msg);
-                    this.socket.emit('chatMessage', msg);
-
-                    // Clear input
+                    this.sendMessageDebounced(msg);
                     e.target.elements.msg.value = '';
                 }
-
                 e.target.elements.msg.focus();
             });
 
@@ -328,6 +415,26 @@ const app = createApp({
                 if (!this.emojiBtn.contains(e.target) && !this.emojiPicker.contains(e.target)) {
                     this.emojiPicker.classList.add('hidden');
                 }
+            });
+
+            // 添加输入状态指示
+            const msgInput = document.getElementById('msg');
+            let typingTimeout = null;
+
+            msgInput.addEventListener('input', () => {
+                if (!typingTimeout) {
+                    // 通知服务器用户正在输入
+                    this.socket.emit('typing', true);
+                }
+
+                // 清除之前的超时
+                clearTimeout(typingTimeout);
+
+                // 设置新的超时，1.5秒后停止输入状态
+                typingTimeout = setTimeout(() => {
+                    this.socket.emit('typing', false);
+                    typingTimeout = null;
+                }, 1500);
             });
         },
 
@@ -492,13 +599,13 @@ const app = createApp({
                                 ${fileInfo.isTemporary ? '<span class="temp-file-notice">临时文件</span>' : ''}
                             </div>
                             ${this.isImage(fileInfo.mimetype) ?
-                                `<br><img src="${fileSource}" alt="${fileInfo.originalname}" class="file-preview">` :
-                                `<br><div class="file-placeholder">
+                        `<br><img src="${fileSource}" alt="${fileInfo.originalname}" class="file-preview">` :
+                        `<br><div class="file-placeholder">
                                     <span class="file-icon">📄</span>
                                     <span class="file-name">${fileInfo.originalname}</span>
                                     <span class="file-type">${fileInfo.mimetype}</span>
                                 </div>`
-                            }
+                    }
                         </div>
                     </div>
                 `;
@@ -514,6 +621,339 @@ const app = createApp({
 
             div.innerHTML = messageContent;
             this.chatMessages.appendChild(div);
+        },
+
+        // 在methods对象中添加防抖函数
+        debounce(func, wait) {
+            let timeout;
+            return function (...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        },
+
+        // 创建新房间
+        createRoom() {
+            console.log('创建房间函数被调用');
+            if (this.createRoomLoading) {
+                console.log('已经在创建房间中，忽略请求');
+                return;
+            }
+
+            if (!this.roomForm.name || this.roomForm.name.trim().length === 0) {
+                console.log('房间名称为空');
+                ElMessage({
+                    message: '请输入房间名称',
+                    type: 'warning'
+                });
+                return;
+            }
+
+            console.log('开始创建房间:', this.roomForm);
+            this.createRoomLoading = true;
+
+            // 使用Promise包装socket.emit
+            const emitPromise = new Promise((resolve, reject) => {
+                // 设置超时
+                const timeout = setTimeout(() => {
+                    reject(new Error('创建房间超时'));
+                }, 10000);
+
+                this.socket.emit('createRoom', this.roomForm, (response) => {
+                    clearTimeout(timeout);
+                    if (response && response.success) {
+                        resolve(response);
+                    } else {
+                        reject(new Error(response ? response.message : '创建房间失败'));
+                    }
+                });
+            });
+
+            // 处理Promise
+            emitPromise.then(response => {
+                console.log('创建房间成功，准备加入房间');
+                this.createRoomLoading = false;
+                this.showCreateRoom = false;
+                this.roomForm.name = '';
+                this.roomForm.description = '';
+
+                // 自动加入创建的房间
+                this.joinRoom(response.room.id);
+            }).catch(error => {
+                console.error('创建房间失败:', error.message);
+                this.createRoomLoading = false;
+                ElMessage({
+                    message: '创建房间失败: ' + error.message,
+                    type: 'error'
+                });
+            });
+        },
+
+        // 加入房间
+        joinRoom(roomId) {
+            console.log('准备加入房间:', roomId);
+
+            // 使用Promise包装socket.emit
+            const emitPromise = new Promise((resolve, reject) => {
+                // 设置超时
+                const timeout = setTimeout(() => {
+                    reject(new Error('加入房间超时'));
+                }, 10000);
+
+                this.socket.emit('joinRoom', roomId, (response) => {
+                    clearTimeout(timeout);
+                    if (response && response.success) {
+                        resolve(response);
+                    } else {
+                        reject(new Error(response ? response.message : '加入房间失败'));
+                    }
+                });
+            });
+
+            // 处理Promise
+            emitPromise.then(response => {
+                console.log('成功加入房间:', response.room);
+                // 更新当前房间
+                this.selectedRoom = response.room;
+
+                // 隐藏房间选择器
+                this.showRoomSelector = false;
+
+                // 清空聊天区域
+                this.chatMessages.innerHTML = '';
+
+                // 显示欢迎消息
+                this.showWelcomeToast(`已加入房间: ${response.room.name}`);
+            }).catch(error => {
+                console.error('加入房间失败:', error.message);
+                this.createRoomLoading = false; // 重置创建房间状态
+                ElMessage({
+                    message: '加入房间失败: ' + error.message,
+                    type: 'error'
+                });
+            });
+        },
+
+        // 离开房间
+        leaveRoom() {
+            this.socket.emit('leaveRoom', (response) => {
+                if (response.success) {
+                    // 重置当前房间
+                    this.selectedRoom = null;
+
+                    // 显示房间选择器
+                    this.showRoomSelector = true;
+
+                    // 清空聊天区域
+                    this.chatMessages.innerHTML = '';
+                } else {
+                    ElMessage({
+                        message: response.message || '离开房间失败',
+                        type: 'error'
+                    });
+                }
+            });
+        },
+
+        // 刷新房间列表
+        refreshRooms() {
+            console.log('开始刷新房间列表');
+
+            // 设置超时
+            const timeout = setTimeout(() => {
+                console.log('刷新房间列表超时');
+                ElMessage({
+                    message: '获取房间列表超时，请刷新页面重试',
+                    type: 'warning'
+                });
+            }, 5000);
+
+            this.socket.emit('getRooms', (response) => {
+                // 清除超时
+                clearTimeout(timeout);
+
+                if (response && response.success) {
+                    console.log('获取房间列表成功，房间数量:', response.rooms.length);
+                    this.rooms = response.rooms;
+                } else {
+                    console.error('获取房间列表失败:', response ? response.message : '未知错误');
+                    ElMessage({
+                        message: response && response.message ? response.message : '获取房间列表失败',
+                        type: 'error'
+                    });
+
+                    // 如果获取失败，尝试使用本地列表
+                    if (this.rooms.length === 0) {
+                        console.log('本地房间列表为空，无法恢复');
+                    } else {
+                        console.log('使用本地房间列表，房间数量:', this.rooms.length);
+                    }
+                }
+            });
+        },
+
+        // 删除房间
+        deleteRoom(roomId) {
+            // 阻止事件冒泡
+            event.stopPropagation();
+
+            console.log(`请求删除房间: ${roomId}`);
+
+            // 查找房间
+            const room = this.rooms.find(r => r.id === roomId);
+            if (!room) {
+                console.error(`房间不存在: ${roomId}`);
+                ElMessage({
+                    message: '房间不存在',
+                    type: 'error'
+                });
+                return;
+            }
+
+            // 确认是否是房间创建者
+            console.log(`房间创建者: ${room.createdBy}, 当前用户: ${this.user.nickname}`);
+            if (room.createdBy !== this.user.nickname) {
+                console.error(`用户 ${this.user.nickname} 不是房间 ${room.name} 的创建者`);
+                ElMessage({
+                    message: '只有房间创建者可以删除房间',
+                    type: 'warning'
+                });
+                return;
+            }
+
+            // 显示自定义确认弹窗
+            this.roomToDelete = room;
+            this.showDeleteConfirm = true;
+            console.log(`显示删除确认弹窗, 房间: ${room.name}`);
+        },
+
+        // 取消删除房间
+        cancelDeleteRoom() {
+            this.showDeleteConfirm = false;
+            this.roomToDelete = null;
+        },
+
+        // 确认删除房间
+        confirmDeleteRoom() {
+            if (!this.roomToDelete) {
+                console.error('没有要删除的房间');
+                return;
+            }
+
+            const roomId = this.roomToDelete.id;
+            const roomName = this.roomToDelete.name;
+
+            console.log(`准备删除房间: ${roomName} (ID: ${roomId})`);
+
+            // 先关闭确认弹窗，防止用户重复点击
+            this.showDeleteConfirm = false;
+
+            // 显示加载提示
+            const loadingMessage = ElMessage({
+                message: '正在删除房间...',
+                type: 'info',
+                duration: 0
+            });
+
+            // 设置超时 - 增加到10秒
+            const timeout = setTimeout(() => {
+                loadingMessage.close();
+                console.log('删除房间操作超时，尝试本地删除');
+
+                ElMessage({
+                    message: '服务器响应超时，已在本地删除房间',
+                    type: 'warning'
+                });
+
+                // 超时后直接在本地删除房间
+                this.handleLocalRoomDeletion(roomId);
+                this.roomToDelete = null;
+            }, 10000); // 增加到10秒
+
+            console.log(`发送删除房间请求到服务器, 房间ID: ${roomId}`);
+
+            // 发送删除请求
+            this.socket.emit('deleteRoom', roomId, (response) => {
+                // 清除超时
+                clearTimeout(timeout);
+
+                // 关闭加载提示
+                loadingMessage.close();
+
+                console.log('收到删除房间响应:', response);
+
+                if (response && response.success) {
+                    console.log(`房间 ${roomName} 删除成功`);
+
+                    ElMessage({
+                        message: '房间已成功删除',
+                        type: 'success'
+                    });
+
+                    // 如果当前在被删除的房间中，则返回房间列表
+                    if (this.selectedRoom && this.selectedRoom.id === roomId) {
+                        console.log('用户当前在被删除的房间中，返回房间列表');
+                        this.selectedRoom = null;
+                        this.showRoomSelector = true;
+                        this.chatMessages.innerHTML = '';
+                    }
+
+                    // 从本地房间列表中移除该房间
+                    const index = this.rooms.findIndex(r => r.id === roomId);
+                    if (index !== -1) {
+                        console.log(`从本地列表中删除房间, 索引: ${index}`);
+                        this.rooms.splice(index, 1);
+                    }
+
+                    // 刷新房间列表
+                    console.log('刷新房间列表');
+                    this.refreshRooms();
+                } else {
+                    console.error('删除房间失败:', response ? response.message : '未知错误');
+
+                    ElMessage({
+                        message: response && response.message ? response.message : '删除房间失败',
+                        type: 'error'
+                    });
+
+                    // 即使服务器删除失败，也尝试从本地列表中移除
+                    this.handleLocalRoomDeletion(roomId);
+                }
+
+                // 重置状态
+                this.roomToDelete = null;
+            });
+        },
+
+        // 处理本地房间删除（当服务器回调失败时使用）
+        handleLocalRoomDeletion(roomId) {
+            console.log('尝试本地删除房间:', roomId);
+
+            // 从本地房间列表中移除该房间
+            const index = this.rooms.findIndex(r => r.id === roomId);
+            if (index !== -1) {
+                console.log('在本地列表中找到房间，正在删除');
+                this.rooms.splice(index, 1);
+
+                // 如果当前在被删除的房间中，则返回房间列表
+                if (this.selectedRoom && this.selectedRoom.id === roomId) {
+                    console.log('用户当前在被删除的房间中，返回房间列表');
+                    this.selectedRoom = null;
+                    this.showRoomSelector = true;
+                    this.chatMessages.innerHTML = '';
+                }
+
+                // 刷新房间列表视图（不请求服务器）
+                console.log('本地删除成功，强制更新视图');
+                this.$forceUpdate();
+
+                ElMessage({
+                    message: '房间已从本地列表中移除',
+                    type: 'warning'
+                });
+            } else {
+                console.log('房间在本地列表中不存在');
+            }
         }
     }
 });

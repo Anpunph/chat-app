@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录注册 - 聊天室</title>
     <!-- ElementUI Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <!-- 添加字体图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         * {
             box-sizing: border-box;
@@ -15,38 +18,111 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 添加动态背景效果 */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="rgba(255,255,255,0.1)" d="M0,128L48,144C96,160,192,192,288,186.7C384,181,480,139,576,138.7C672,139,768,181,864,176C960,171,1056,117,1152,101.3C1248,85,1344,107,1392,117.3L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat bottom;
+            background-size: cover;
+            z-index: -1;
+            animation: wave 15s linear infinite;
+        }
+
+        @keyframes wave {
+            0% {
+                background-position: 0 bottom;
+            }
+
+            100% {
+                background-position: 1440px bottom;
+            }
         }
 
         .auth-container {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
             overflow: hidden;
             width: 100%;
-            max-width: 400px;
+            max-width: 450px;
             margin: 20px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transform: translateY(0);
+            transition: transform 0.5s ease, box-shadow 0.5s ease;
+        }
+
+        .auth-container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
         }
 
         .auth-header {
-            background: #4a69bd;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
             color: white;
-            padding: 30px 20px;
+            padding: 35px 25px;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .auth-header::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.95) 50%);
+            z-index: 1;
         }
 
         .auth-header h1 {
-            margin-bottom: 10px;
-            font-size: 28px;
+            margin-bottom: 15px;
+            font-size: 32px;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .auth-header p {
             opacity: 0.9;
-            font-size: 14px;
+            font-size: 16px;
+            font-weight: 300;
+        }
+
+        .auth-logo {
+            margin-bottom: 15px;
+            font-size: 48px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% {
+                transform: translateY(0px);
+            }
+
+            50% {
+                transform: translateY(-10px);
+            }
+
+            100% {
+                transform: translateY(0px);
+            }
         }
 
         .auth-content {
@@ -56,7 +132,10 @@
         .auth-tabs {
             display: flex;
             margin-bottom: 30px;
-            border-bottom: 1px solid #eee;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #e8f4fc;
+            background: #f8fdff;
         }
 
         .auth-tab {
@@ -64,14 +143,27 @@
             padding: 15px;
             text-align: center;
             cursor: pointer;
-            border-bottom: 2px solid transparent;
             transition: all 0.3s;
             color: #666;
+            font-weight: 600;
+            position: relative;
+            z-index: 1;
         }
 
         .auth-tab.active {
-            color: #4a69bd;
-            border-bottom-color: #4a69bd;
+            color: #fff;
+        }
+
+        .auth-tab.active::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            z-index: -1;
+            transition: all 0.3s ease;
         }
 
         .auth-form {
@@ -80,127 +172,222 @@
 
         .auth-form.active {
             display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 25px;
+            position: relative;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             color: #333;
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 42px;
+            color: #aaa;
+            transition: all 0.3s;
+        }
+
+        .form-group .toggle-password {
+            position: absolute;
+            right: 15px;
+            top: 42px;
+            color: #aaa;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .form-group .toggle-password:hover {
+            color: #56ccf2;
         }
 
         .form-group input {
             width: 100%;
-            padding: 12px 15px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            transition: border-color 0.3s;
+            padding: 14px 15px 14px 45px;
+            border: 1px solid #e8f4fc;
+            border-radius: 12px;
+            font-size: 15px;
+            transition: all 0.3s;
+            background: #f8fdff;
         }
 
         .form-group input:focus {
             outline: none;
-            border-color: #4a69bd;
+            border-color: #56ccf2;
+            box-shadow: 0 0 0 3px rgba(86, 204, 242, 0.1);
+            background: #fff;
+        }
+
+        .form-group input:focus+.input-icon {
+            color: #56ccf2;
         }
 
         .auth-button {
             width: 100%;
-            padding: 12px;
-            background: #4a69bd;
+            padding: 15px;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 12px;
             font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(47, 128, 237, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .auth-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: all 0.5s;
         }
 
         .auth-button:hover {
-            background: #3c5aa6;
+            transform: translateY(-2px);
+            box-shadow: 0 7px 14px rgba(47, 128, 237, 0.15);
+        }
+
+        .auth-button:hover::before {
+            left: 100%;
         }
 
         .auth-button:disabled {
             background: #ccc;
             cursor: not-allowed;
+            box-shadow: none;
         }
 
         .auth-footer {
             text-align: center;
-            margin-top: 20px;
+            margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid #e8f4fc;
+            color: #666;
         }
 
         .auth-footer a {
-            color: #4a69bd;
+            color: #2f80ed;
             text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
         }
 
         .auth-footer a:hover {
-            text-decoration: underline;
+            color: #56ccf2;
         }
 
-        .loading {
-            display: none;
-            text-align: center;
-            margin-top: 10px;
+        /* 响应式调整 */
+        @media (max-width: 480px) {
+            .auth-container {
+                margin: 10px;
+            }
+
+            .auth-header {
+                padding: 25px 15px;
+            }
+
+            .auth-content {
+                padding: 30px 20px;
+            }
+
+            .auth-header h1 {
+                font-size: 28px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div id="app">
         <div class="auth-container">
             <div class="auth-header">
-                <h1>聊天室</h1>
-                <p>欢迎使用我们的聊天应用</p>
+                <div class="auth-logo">🌊</div>
+                <h1>清语聊天室</h1>
+                <p>轻松交流，畅快聊天</p>
             </div>
 
             <div class="auth-content">
                 <div class="auth-tabs">
-                    <div class="auth-tab" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">登录</div>
-                    <div class="auth-tab" :class="{ active: activeTab === 'register' }" @click="activeTab = 'register'">注册</div>
+                    <div class="auth-tab" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">登录
+                    </div>
+                    <div class="auth-tab" :class="{ active: activeTab === 'register' }" @click="activeTab = 'register'">
+                        注册</div>
                 </div>
 
                 <!-- 登录表单 -->
-                <form class="auth-form" :class="{ active: activeTab === 'login' }" v-show="activeTab === 'login'" @submit.prevent="handleLogin">
+                <form class="auth-form" :class="{ active: activeTab === 'login' }" v-show="activeTab === 'login'"
+                    @submit.prevent="handleLogin">
                     <div class="form-group">
                         <label>昵称</label>
                         <input type="text" v-model="loginForm.nickname" placeholder="请输入昵称" required>
+                        <i class="fas fa-user input-icon"></i>
                     </div>
                     <div class="form-group">
                         <label>密码</label>
                         <input type="password" v-model="loginForm.password" placeholder="请输入密码" required>
+                        <i class="fas fa-lock input-icon"></i>
+                        <i class="fas fa-eye toggle-password" @click="togglePasswordVisibility('login')"></i>
                     </div>
                     <button type="submit" class="auth-button" :disabled="loginLoading">
+                        <i class="fas fa-sign-in-alt" v-if="!loginLoading"></i>
                         {{ loginLoading ? '登录中...' : '登录' }}
                     </button>
                 </form>
 
                 <!-- 注册表单 -->
-                <form class="auth-form" :class="{ active: activeTab === 'register' }" v-show="activeTab === 'register'" @submit.prevent="handleRegister">
+                <form class="auth-form" :class="{ active: activeTab === 'register' }" v-show="activeTab === 'register'"
+                    @submit.prevent="handleRegister">
                     <div class="form-group">
                         <label>昵称</label>
                         <input type="text" v-model="registerForm.nickname" placeholder="2-15个字符" required>
+                        <i class="fas fa-user input-icon"></i>
                     </div>
                     <div class="form-group">
                         <label>密码</label>
                         <input type="password" v-model="registerForm.password" placeholder="至少6个字符" required>
+                        <i class="fas fa-lock input-icon"></i>
+                        <i class="fas fa-eye toggle-password" @click="togglePasswordVisibility('register')"></i>
                     </div>
                     <div class="form-group">
                         <label>确认密码</label>
                         <input type="password" v-model="registerForm.confirmPassword" placeholder="请再次输入密码" required>
+                        <i class="fas fa-check input-icon"></i>
                     </div>
                     <button type="submit" class="auth-button" :disabled="registerLoading">
+                        <i class="fas fa-user-plus" v-if="!registerLoading"></i>
                         {{ registerLoading ? '注册中...' : '注册' }}
                     </button>
                 </form>
 
                 <div class="auth-footer">
-                    <a href="javascript:void(0)" @click="goToChat" v-if="false">进入聊天室</a>
+                    <p>登录即表示您同意我们的 <a href="javascript:void(0)">服务条款</a> 和 <a href="javascript:void(0)">隐私政策</a></p>
                 </div>
             </div>
         </div>
@@ -220,7 +407,7 @@
             console.warn('主CDN Vue.js 加载失败，尝试备用CDN...');
             const script = document.createElement('script');
             script.src = 'https://unpkg.com/vue@3/dist/vue.global.js';
-            script.onerror = function() {
+            script.onerror = function () {
                 alert('Vue.js 加载失败！请检查网络连接或尝试刷新页面。');
             };
             document.head.appendChild(script);
@@ -230,7 +417,7 @@
             console.warn('主CDN ElementUI Plus 加载失败，尝试备用CDN...');
             const script = document.createElement('script');
             script.src = 'https://unpkg.com/element-plus/dist/index.full.js';
-            script.onerror = function() {
+            script.onerror = function () {
                 console.warn('ElementUI Plus 加载失败，将使用基础样式');
             };
             document.head.appendChild(script);
@@ -238,4 +425,5 @@
     </script>
     <script src="js/auth.js"></script>
 </body>
+
 </html>

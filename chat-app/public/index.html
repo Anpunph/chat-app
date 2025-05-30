@@ -1,26 +1,771 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>网络聊天室</title>
-    <!-- ElementUI Plus CSS -->
+    <title>清语聊天室</title>
+    <!-- 预加载关键资源 -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css" as="style">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/vue@3.3.8/dist/vue.global.js" as="script">
+    <link rel="preload" href="css/style.css" as="style">
+    <link rel="preload" href="js/main.js" as="script">
+
+    <!-- 资源加载 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.4.4/dist/index.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            margin: 0;
+            padding: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="rgba(255,255,255,0.1)" d="M0,128L48,144C96,160,192,192,288,186.7C384,181,480,139,576,138.7C672,139,768,181,864,176C960,171,1056,117,1152,101.3C1248,85,1344,107,1392,117.3L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat bottom;
+            background-size: cover;
+            z-index: -1;
+            animation: wave 15s linear infinite;
+        }
+
+        @keyframes wave {
+            0% {
+                background-position: 0 bottom;
+            }
+
+            100% {
+                background-position: 1440px bottom;
+            }
+        }
+
+        .chat-container {
+            max-width: 1000px;
+            margin: 30px auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 85vh;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: #fff;
+            padding: 18px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .header-logo {
+            font-size: 28px;
+            margin-right: 12px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% {
+                transform: translateY(0px);
+            }
+
+            50% {
+                transform: translateY(-5px);
+            }
+
+            100% {
+                transform: translateY(0px);
+            }
+        }
+
+        .header-left h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-info {
+            font-size: 15px;
+            opacity: 0.95;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .user-info i {
+            margin-right: 6px;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header-btn i {
+            font-size: 18px;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .chat-messages {
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+            background: #f8fdff;
+        }
+
+        .chat-form-container {
+            padding: 15px 20px;
+            background-color: #f8fdff;
+            border-top: 1px solid #e8f4fc;
+            position: relative;
+        }
+
+        .input-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .action-btn {
+            padding: 12px;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(47, 128, 237, 0.2);
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(47, 128, 237, 0.3);
+        }
+
+        #chat-form {
+            display: flex;
+            flex: 1;
+        }
+
+        #msg {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #e8f4fc;
+            border-radius: 10px;
+            font-size: 15px;
+            background: white;
+            transition: all 0.3s;
+        }
+
+        #msg:focus {
+            outline: none;
+            border-color: #56ccf2;
+            box-shadow: 0 0 0 3px rgba(86, 204, 242, 0.1);
+        }
+
+        .btn {
+            margin-left: 10px;
+            padding: 0 20px;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(47, 128, 237, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(47, 128, 237, 0.3);
+        }
+
+        /* 自己的消息 - 有气泡背景 */
+        .own-bubble {
+            border-radius: 18px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 文字消息样式 */
+        .text-content.own-bubble {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: white;
+            font-size: 14px;
+        }
+
+        /* 表情消息样式 */
+        .emoji-content.own-bubble {
+            background: linear-gradient(135deg, #4CAF50 0%, #8BC34A 100%);
+            color: white;
+            font-size: 18px;
+            text-align: center;
+            min-width: 40px;
+        }
+
+        /* 文件消息样式 */
+        .file-content.own-bubble {
+            background: linear-gradient(135deg, #9C27B0 0%, #673AB7 100%);
+            color: white;
+            max-width: 90%;
+        }
+
+        /* 系统消息样式 */
+        .system-message {
+            text-align: center;
+            margin: 15px 0;
+        }
+
+        .system-content {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: rgba(0, 0, 0, 0.05);
+            color: #666;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        /* 输入状态指示器 */
+        .typing-indicator {
+            padding: 8px 12px;
+            color: #666;
+            font-style: italic;
+            font-size: 13px;
+        }
+
+        /* 模态框样式 */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: white;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            border: none;
+            box-shadow: 0 2px 5px rgba(47, 128, 237, 0.2);
+            transition: all 0.3s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(47, 128, 237, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f1f1f1;
+            color: #333;
+            border: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s;
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 欢迎提示框 */
+        .welcome-toast {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            border-radius: 16px;
+            box-shadow: 0 10px 20px rgba(47, 128, 237, 0.2);
+        }
+
+        /* 房间选择器样式 */
+        .room-selector {
+            position: absolute;
+            top: 70px;
+            left: 0;
+            width: 100%;
+            height: calc(100% - 70px);
+            background: rgba(255, 255, 255, 0.95);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 30px 30px 30px;
+            box-sizing: border-box;
+            border-top: 1px solid rgba(86, 204, 242, 0.3);
+        }
+
+        .room-selector-header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(86, 204, 242, 0.3);
+        }
+
+        .room-selector-header h2 {
+            font-size: 24px;
+            color: #2f80ed;
+            margin-bottom: 10px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .room-selector-header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .room-search {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .room-search input {
+            width: 100%;
+            padding: 12px 15px 12px 40px;
+            border: 1px solid #e8f4fc;
+            border-radius: 10px;
+            font-size: 15px;
+            background: white;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+        }
+
+        .room-search input:focus {
+            outline: none;
+            border-color: #56ccf2;
+            box-shadow: 0 0 0 3px rgba(86, 204, 242, 0.2);
+        }
+
+        .room-search i {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #aaa;
+        }
+
+        .search-results-count {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            text-align: right;
+            padding-right: 5px;
+        }
+
+        .room-list {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            border: 1px solid #e8f4fc;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .room-item {
+            padding: 15px;
+            border-bottom: 1px solid #e8f4fc;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .room-item:last-child {
+            border-bottom: none;
+        }
+
+        .room-item:hover {
+            background-color: #f8fdff;
+        }
+
+        .room-item.active {
+            background-color: #e8f4fc;
+        }
+
+        .room-name {
+            font-weight: 600;
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .room-id {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 5px;
+            font-family: monospace;
+        }
+
+        .room-description {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .room-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .room-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .delete-room-btn {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            background: rgba(255, 87, 87, 0.1);
+            color: #ff5757;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            z-index: 10;
+        }
+
+        .delete-room-btn:hover {
+            background: rgba(255, 87, 87, 0.2);
+            transform: scale(1.1);
+        }
+
+        .create-room-form {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        .create-room-form h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2f80ed;
+        }
+
+        .form-tip {
+            color: #666;
+            font-size: 14px;
+            margin-top: -10px;
+            margin-bottom: 15px;
+            font-style: italic;
+        }
+
+        .form-row {
+            margin-bottom: 15px;
+        }
+
+        .form-row label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-row input,
+        .form-row textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #e8f4fc;
+            border-radius: 10px;
+            font-size: 15px;
+            background: white;
+            transition: all 0.3s;
+        }
+
+        .form-row input:focus,
+        .form-row textarea:focus {
+            outline: none;
+            border-color: #56ccf2;
+            box-shadow: 0 0 0 3px rgba(86, 204, 242, 0.1);
+        }
+
+        .form-row textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .no-rooms {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+        }
+
+        .room-info {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            margin-left: 15px;
+        }
+
+        .room-info i {
+            margin-right: 6px;
+            font-size: 16px;
+        }
+
+        .room-info span {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .room-id-badge {
+            background: rgba(47, 128, 237, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 5px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #fff;
+            letter-spacing: 1px;
+        }
+
+        .room-id-tag {
+            background: rgba(47, 128, 237, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 5px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #2f80ed;
+            letter-spacing: 1px;
+        }
+
+        .room-selector-footer {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            border-top: 1px solid rgba(86, 204, 242, 0.3);
+            text-align: center;
+        }
+
+        .room-tip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .room-tip i {
+            font-size: 18px;
+        }
+
+        /* 删除确认弹窗样式 */
+        .delete-confirm-modal {
+            max-width: 450px;
+        }
+
+        .delete-modal-header {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+        }
+
+        .delete-modal-header h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .delete-warning {
+            text-align: center;
+            padding: 20px 10px;
+        }
+
+        .warning-icon {
+            font-size: 48px;
+            color: #ff6b6b;
+            margin-bottom: 15px;
+        }
+
+        .delete-note {
+            font-size: 14px;
+            color: #777;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(238, 90, 36, 0.3);
+        }
+    </style>
 </head>
+
 <body>
     <div id="app" class="chat-container">
         <header class="chat-header">
             <div class="header-left">
-                <h1>网络聊天室</h1>
+                <div class="header-logo">🌊</div>
+                <h1>清语聊天室</h1>
+                <div class="room-info" v-if="selectedRoom">
+                    <i class="fas fa-door-open"></i>
+                    <span>{{ selectedRoom.name }}</span>
+                    <span class="room-id-badge">ID: {{ selectedRoom.id }}</span>
+                </div>
             </div>
             <div class="header-right" v-if="user">
-                <span class="user-info">欢迎，{{ user.nickname }}</span>
-                <button class="header-btn" @click="showUserSettings = true" title="用户设置">⚙️</button>
-                <button class="header-btn" @click="showOnlineMembers = true" title="在线成员">👥</button>
-                <button class="header-btn" @click="handleLogout" title="退出登录">🚪</button>
+                <span class="user-info"><i class="fas fa-user-circle"></i> {{ user.nickname }}</span>
+                <button class="header-btn" @click="showUserSettings = true" title="用户设置">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button class="header-btn" @click="showOnlineMembers = true" title="在线成员">
+                    <i class="fas fa-users"></i>
+                </button>
+                <button class="header-btn" v-if="selectedRoom" @click="leaveRoom" title="离开房间">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+                <button class="header-btn" @click="handleLogout" title="退出登录">
+                    <i class="fas fa-power-off"></i>
+                </button>
             </div>
         </header>
+
+        <!-- 房间选择器 -->
+        <div class="room-selector" v-if="showRoomSelector">
+            <div class="room-selector-header">
+                <h2>选择或创建聊天房间</h2>
+                <p>加入一个已有的房间或创建一个新的房间开始聊天</p>
+            </div>
+
+            <div class="room-search">
+                <i class="fas fa-search"></i>
+                <input type="text" v-model="searchQuery" placeholder="搜索房间名称、ID、描述或创建者...">
+                <div class="search-results-count" v-if="searchQuery">
+                    找到 {{ filteredRooms.length }} 个匹配的房间
+                </div>
+            </div>
+
+            <div class="room-actions">
+                <button class="btn" @click="showCreateRoom = !showCreateRoom">
+                    <i class="fas" :class="showCreateRoom ? 'fa-times' : 'fa-plus'"></i>
+                    {{ showCreateRoom ? '取消创建' : '创建新房间' }}
+                </button>
+                <button class="btn" @click="refreshRooms">
+                    <i class="fas fa-sync-alt"></i>
+                    刷新列表
+                </button>
+            </div>
+
+            <!-- 创建房间表单 -->
+            <div class="create-room-form" v-if="showCreateRoom">
+                <h3>创建新房间</h3>
+                <p class="form-tip">系统将自动生成唯一的9位数字房间ID</p>
+                <div class="form-row">
+                    <label>房间名称</label>
+                    <input type="text" v-model="roomForm.name" placeholder="输入房间名称" maxlength="30">
+                </div>
+                <div class="form-row">
+                    <label>房间描述 (可选)</label>
+                    <textarea v-model="roomForm.description" placeholder="输入房间描述" maxlength="200"></textarea>
+                </div>
+                <button class="btn" @click="createRoom" :disabled="createRoomLoading">
+                    <i class="fas" :class="createRoomLoading ? 'fa-spinner fa-spin' : 'fa-check'"></i>
+                    {{ createRoomLoading ? '创建中...' : '创建房间' }}
+                </button>
+            </div>
+
+            <div class="room-list">
+                <div v-if="filteredRooms.length === 0" class="no-rooms">
+                    <p>暂无可用房间</p>
+                    <p>点击"创建新房间"按钮创建一个房间</p>
+                </div>
+                <div v-for="room in filteredRooms" :key="room.id" class="room-item" @click="joinRoom(room.id)">
+                    <div class="room-name">{{ room.name }}
+                        <span class="room-id-tag">ID: {{ room.id }}</span>
+                    </div>
+                    <div class="room-description" v-if="room.description">{{ room.description }}</div>
+                    <div class="room-meta">
+                        <span>创建者: {{ room.createdBy }}</span>
+                        <span>在线: {{ room.userCount }}人</span>
+                    </div>
+                    <button v-if="room.createdBy === user.nickname" class="delete-room-btn"
+                        @click.stop="deleteRoom(room.id)" title="删除房间">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="room-selector-footer">
+                <div class="room-tip">
+                    <i class="fas fa-info-circle"></i>
+                    <span>提示: 点击房间加入聊天，或创建新房间开始交流</span>
+                </div>
+            </div>
+        </div>
+
         <div class="chat-messages"></div>
         <div class="chat-form-container">
             <!-- Emoji Picker -->
@@ -47,17 +792,17 @@
 
             <!-- Chat Input Form -->
             <div class="input-container">
-                <button type="button" id="emoji-btn" class="action-btn" title="Add Emoji">😀</button>
-                <button type="button" id="file-btn" class="action-btn" title="Upload File">📎</button>
-                <input type="file" id="file-input" accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rar" style="display: none;">
+                <button type="button" id="emoji-btn" class="action-btn" title="添加表情">
+                    <i class="far fa-smile"></i>
+                </button>
+                <button type="button" id="file-btn" class="action-btn" title="上传文件">
+                    <i class="fas fa-paperclip"></i>
+                </button>
+                <input type="file" id="file-input" accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rar"
+                    style="display: none;">
                 <form id="chat-form">
-                    <input
-                        id="msg"
-                        type="text"
-                        placeholder="输入消息..."
-                        autocomplete="off"
-                    />
-                    <button type="submit" class="btn">Send</button>
+                    <input id="msg" type="text" placeholder="输入消息..." autocomplete="off" />
+                    <button type="submit" class="btn">发送</button>
                 </form>
             </div>
 
@@ -66,7 +811,7 @@
                 <div class="progress-bar">
                     <div class="progress-fill"></div>
                 </div>
-                <span class="progress-text">Uploading...</span>
+                <span class="progress-text">上传中...</span>
             </div>
         </div>
 
@@ -120,7 +865,7 @@
                         </div>
                         <div v-for="member in onlineUsers" :key="member.id" class="member-item">
                             <div class="member-avatar">
-                                <span class="avatar-icon">👤</span>
+                                <i class="fas fa-user-circle avatar-icon"></i>
                             </div>
                             <div class="member-info">
                                 <span class="member-name">{{ member.nickname }}</span>
@@ -146,6 +891,29 @@
                 <span class="welcome-text"></span>
             </div>
         </div>
+
+        <!-- 删除房间确认弹窗 -->
+        <div v-if="showDeleteConfirm" class="modal-overlay" @click="cancelDeleteRoom">
+            <div class="modal-content delete-confirm-modal" @click.stop>
+                <div class="modal-header delete-modal-header">
+                    <h3><i class="fas fa-trash-alt"></i> 删除房间</h3>
+                    <button class="modal-close" @click="cancelDeleteRoom">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="delete-warning">
+                        <i class="fas fa-exclamation-triangle warning-icon"></i>
+                        <p>您确定要删除房间 "{{ roomToDelete ? roomToDelete.name : '' }}" 吗？</p>
+                        <p class="delete-note">此操作不可撤销，房间内的所有聊天记录将被永久删除。</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" @click="cancelDeleteRoom">取消</button>
+                    <button type="button" class="btn-danger" @click="confirmDeleteRoom">
+                        <i class="fas fa-trash-alt"></i> 确认删除
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Vue 3 -->
@@ -162,7 +930,7 @@
             console.warn('主CDN Vue.js 加载失败，尝试备用CDN...');
             const script = document.createElement('script');
             script.src = 'https://unpkg.com/vue@3/dist/vue.global.js';
-            script.onerror = function() {
+            script.onerror = function () {
                 alert('Vue.js 加载失败！请检查网络连接或尝试刷新页面。');
             };
             document.head.appendChild(script);
@@ -172,7 +940,7 @@
             console.warn('主CDN ElementUI Plus 加载失败，尝试备用CDN...');
             const script = document.createElement('script');
             script.src = 'https://unpkg.com/element-plus/dist/index.full.js';
-            script.onerror = function() {
+            script.onerror = function () {
                 console.warn('ElementUI Plus 加载失败，将使用基础样式');
             };
             document.head.appendChild(script);
@@ -181,4 +949,5 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/main.js"></script>
 </body>
+
 </html>

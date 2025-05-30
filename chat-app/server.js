@@ -9,10 +9,25 @@ const database = require('./database');
 
 // 在线用户管理
 const onlineUsers = new Map(); // 存储在线用户信息
+const userSockets = new Map(); // 用户ID到socket ID的映射
+
+// 房间管理
+const rooms = new Map(); // 存储房间信息 {roomId: {name, description, createdBy, createdAt, users: []}}
 
 const app = express();
 const server = http.createServer(app);
-const io = socketio(server);
+const io = socketio(server, {
+    pingTimeout: 60000, // 增加超时时间
+    pingInterval: 25000, // 调整心跳间隔
+    cors: {
+        origin: "*", // 在生产环境中应该限制为特定域名
+        methods: ["GET", "POST"]
+    },
+    transports: ['websocket', 'polling'], // 优先使用WebSocket
+    maxHttpBufferSize: 10e6, // 10 MB
+    connectTimeout: 45000, // 连接超时时间
+    allowEIO3: true // 允许Engine.IO v3客户端连接
+});
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
@@ -22,12 +37,13 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Configure multer for file uploads (memory storage - no files saved to disk)
 const upload = multer({
-    storage: multer.memoryStorage(), // 使用内存存储，不保存到磁盘
+    storage: multer.memoryStorage(),
     limits: {
-        fileSize: 10 * 1024 * 1024 // 10MB limit
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+        files: 1 // 一次只允许上传一个文件
     },
     fileFilter: function (req, file, cb) {
-        // Allow common file types
+        // 优化文件类型检查
         const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt|zip|rar/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
@@ -35,7 +51,7 @@ const upload = multer({
         if (mimetype && extname) {
             return cb(null, true);
         } else {
-            cb(new Error('Only images, documents, and archives are allowed!'));
+            cb(new Error('只允许上传图片、文档和压缩文件！'));
         }
     }
 });
@@ -46,13 +62,23 @@ const sessionMiddleware = session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // 在生产环境中应该设置为true（需要HTTPS）
-        maxAge: 24 * 60 * 60 * 1000 // 24小时
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'strict'
     }
 });
 
 // Use session middleware
 app.use(sessionMiddleware);
+
+// 在app.use(sessionMiddleware)之后添加安全头设置
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+});
 
 // Parse JSON bodies
 app.use(express.json());
@@ -106,6 +132,114 @@ app.post('/upload', (req, res) => {
             res.status(500).json({ error: '文件上传失败' });
         }
     });
+});
+
+// 房间相关API
+
+// 获取所有房间
+app.get('/api/rooms', (req, res) => {
+    try {
+        const roomList = Array.from(rooms.values()).map(room => ({
+            id: room.id,
+            name: room.name,
+            description: room.description,
+            createdBy: room.createdBy,
+            createdAt: room.createdAt,
+            userCount: room.users ? room.users.length : 0
+        }));
+        res.json({ success: true, rooms: roomList });
+    } catch (error) {
+        console.error('获取房间列表错误:', error);
+        res.status(500).json({ success: false, message: '服务器错误' });
+    }
+});
+
+// 创建房间
+app.post('/api/rooms', (req, res) => {
+    try {
+        if (!req.session.user) {
+            return res.status(401).json({ success: false, message: '未登录' });
+        }
+
+        const { name, description } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ success: false, message: '房间名称不能为空' });
+        }
+
+        // 生成唯一房间ID - 9位数字
+        const generateRoomId = () => {
+            // 生成9位随机数字
+            const min = 100000000; // 最小9位数
+            const max = 999999999; // 最大9位数
+            const roomId = Math.floor(min + Math.random() * (max - min));
+
+            // 确保ID唯一
+            if (rooms.has(roomId.toString())) {
+                return generateRoomId(); // 如果ID已存在，递归重新生成
+            }
+
+            return roomId.toString();
+        };
+
+        const roomId = generateRoomId();
+        console.log('生成房间ID:', roomId);
+
+        // 创建房间
+        const room = {
+            id: roomId,
+            name: name.trim(),
+            description: description || '',
+            createdBy: req.session.user.nickname,
+            createdAt: new Date(),
+            users: []
+        };
+
+        rooms.set(roomId, room);
+
+        res.json({
+            success: true,
+            message: '房间创建成功',
+            room: {
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                createdBy: room.createdBy,
+                createdAt: room.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('创建房间错误:', error);
+        res.status(500).json({ success: false, message: '服务器错误' });
+    }
+});
+
+// 获取特定房间信息
+app.get('/api/rooms/:roomId', (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const room = rooms.get(roomId);
+
+        if (!room) {
+            return res.status(404).json({ success: false, message: '房间不存在' });
+        }
+
+        res.json({
+            success: true,
+            room: {
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                createdBy: room.createdBy,
+                createdAt: room.createdAt,
+                userCount: room.users ? room.users.length : 0,
+                users: room.users || []
+            }
+        });
+    } catch (error) {
+        console.error('获取房间信息错误:', error);
+        res.status(500).json({ success: false, message: '服务器错误' });
+    }
 });
 
 // 用户注册
@@ -249,12 +383,13 @@ app.post('/api/user/update', async (req, res) => {
 });
 
 // Format messages
-function formatMessage(username, text, type = 'text', fileInfo = null) {
+function formatMessage(username, text, type = 'text', fileInfo = null, roomId = null) {
     return {
         username,
         text,
         type,
         fileInfo,
+        roomId,
         time: new Date().toLocaleTimeString()
     };
 }
@@ -264,6 +399,40 @@ function broadcastOnlineUsers() {
     const users = Array.from(onlineUsers.values());
     console.log('广播在线用户列表:', users);
     io.emit('onlineUsers', users);
+}
+
+// 获取房间用户列表
+function getRoomUsers(roomId) {
+    const room = io.sockets.adapter.rooms.get(roomId);
+    if (!room) return [];
+
+    const users = [];
+    for (const socketId of room) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket && socket.userId && socket.username) {
+            users.push({
+                id: socket.userId,
+                nickname: socket.username
+            });
+        }
+    }
+
+    return users;
+}
+
+// 更新房间用户列表
+function updateRoomUsers(roomId) {
+    const roomUsers = getRoomUsers(roomId);
+
+    // 更新房间对象中的用户列表
+    if (rooms.has(roomId)) {
+        const room = rooms.get(roomId);
+        room.users = roomUsers;
+        rooms.set(roomId, room);
+    }
+
+    // 广播房间用户列表
+    io.to(roomId).emit('roomUsers', roomUsers);
 }
 
 // Share session with Socket.IO
@@ -310,14 +479,28 @@ io.on('connection', socket => {
 
             console.log(`用户 ${user.nickname} 加入聊天室`);
 
-            // Welcome current user
-            socket.emit('message', formatMessage('系统', `欢迎 ${user.nickname} 进入聊天室！`));
+            // 添加到用户映射
+            userSockets.set(user.id, socket.id);
 
-            // Broadcast when a user connects
-            socket.broadcast.emit('message', formatMessage('系统', `${user.nickname} 加入了聊天室`));
+            // 设置用户状态为在线
+            socket.broadcast.emit('userStatus', {
+                userId: user.id,
+                status: 'online'
+            });
 
             // 广播更新的在线用户列表
             broadcastOnlineUsers();
+
+            // 发送房间列表
+            const roomList = Array.from(rooms.values()).map(room => ({
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                createdBy: room.createdBy,
+                createdAt: room.createdAt,
+                userCount: room.users ? room.users.length : 0
+            }));
+            socket.emit('roomList', roomList);
         }
     });
 
@@ -334,24 +517,333 @@ io.on('connection', socket => {
 
         console.log(`用户 ${user.nickname} 连接到聊天室`);
 
-        // Welcome current user
-        socket.emit('message', formatMessage('系统', `欢迎 ${user.nickname} 进入聊天室！`));
+        // 添加到用户映射
+        userSockets.set(user.id, socket.id);
 
-        // Broadcast when a user connects
-        socket.broadcast.emit('message', formatMessage('系统', `${user.nickname} 加入了聊天室`));
+        // 设置用户状态为在线
+        socket.broadcast.emit('userStatus', {
+            userId: user.id,
+            status: 'online'
+        });
 
         // 广播更新的在线用户列表
         broadcastOnlineUsers();
+
+        // 发送房间列表
+        const roomList = Array.from(rooms.values()).map(room => ({
+            id: room.id,
+            name: room.name,
+            description: room.description,
+            createdBy: room.createdBy,
+            createdAt: room.createdAt,
+            userCount: room.users ? room.users.length : 0
+        }));
+        socket.emit('roomList', roomList);
     }
+
+    // 创建房间
+    socket.on('createRoom', (roomData, callback) => {
+        try {
+            console.log('收到创建房间请求:', roomData);
+            console.log('当前用户:', socket.username);
+
+            if (!socket.username) {
+                console.log('创建房间失败: 用户未登录');
+                return callback({ success: false, message: '未登录' });
+            }
+
+            const { name, description } = roomData;
+
+            if (!name || name.trim().length === 0) {
+                console.log('创建房间失败: 房间名称为空');
+                return callback({ success: false, message: '房间名称不能为空' });
+            }
+
+            // 生成唯一房间ID - 9位数字
+            const generateRoomId = () => {
+                // 生成9位随机数字
+                const min = 100000000; // 最小9位数
+                const max = 999999999; // 最大9位数
+                const roomId = Math.floor(min + Math.random() * (max - min));
+
+                // 确保ID唯一
+                if (rooms.has(roomId.toString())) {
+                    return generateRoomId(); // 如果ID已存在，递归重新生成
+                }
+
+                return roomId.toString();
+            };
+
+            const roomId = generateRoomId();
+            console.log('生成房间ID:', roomId);
+
+            // 创建房间
+            const room = {
+                id: roomId,
+                name: name.trim(),
+                description: description || '',
+                createdBy: socket.username,
+                createdAt: new Date(),
+                users: []
+            };
+
+            rooms.set(roomId, room);
+            console.log('房间创建成功:', room);
+
+            // 广播新房间信息
+            io.emit('newRoom', {
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                createdBy: room.createdBy,
+                createdAt: room.createdAt,
+                userCount: 0
+            });
+            console.log('已广播新房间信息');
+
+            console.log('准备发送回调响应');
+            callback({
+                success: true,
+                message: '房间创建成功',
+                room: {
+                    id: room.id,
+                    name: room.name,
+                    description: room.description
+                }
+            });
+            console.log('回调响应已发送');
+        } catch (error) {
+            console.error('创建房间错误:', error);
+            callback({ success: false, message: '创建房间失败' });
+        }
+    });
+
+    // 加入房间
+    socket.on('joinRoom', (roomId, callback) => {
+        try {
+            if (!socket.username) {
+                return callback && callback({ success: false, message: '未登录' });
+            }
+
+            // 检查房间是否存在
+            if (!rooms.has(roomId)) {
+                return callback && callback({ success: false, message: '房间不存在' });
+            }
+
+            // 如果已经在其他房间，先离开
+            if (socket.currentRoom) {
+                socket.leave(socket.currentRoom);
+                // 通知原房间其他用户
+                socket.to(socket.currentRoom).emit('message', formatMessage('系统', `${socket.username} 离开了房间`, 'system', null, socket.currentRoom));
+                // 更新原房间用户列表
+                updateRoomUsers(socket.currentRoom);
+            }
+
+            // 加入新房间
+            socket.join(roomId);
+            socket.currentRoom = roomId;
+
+            // 发送房间欢迎消息
+            socket.emit('message', formatMessage('系统', `欢迎加入房间 ${rooms.get(roomId).name}`, 'system', null, roomId));
+
+            // 通知房间其他用户
+            socket.to(roomId).emit('message', formatMessage('系统', `${socket.username} 加入了房间`, 'system', null, roomId));
+
+            // 更新房间用户列表
+            updateRoomUsers(roomId);
+
+            if (callback) {
+                callback({
+                    success: true,
+                    message: '成功加入房间',
+                    room: rooms.get(roomId)
+                });
+            }
+        } catch (error) {
+            console.error('加入房间错误:', error);
+            if (callback) {
+                callback({ success: false, message: '加入房间失败' });
+            }
+        }
+    });
+
+    // 离开房间
+    socket.on('leaveRoom', (callback) => {
+        try {
+            if (!socket.currentRoom) {
+                return callback && callback({ success: false, message: '未加入任何房间' });
+            }
+
+            const roomId = socket.currentRoom;
+
+            // 通知房间其他用户
+            socket.to(roomId).emit('message', formatMessage('系统', `${socket.username} 离开了房间`, 'system', null, roomId));
+
+            // 离开房间
+            socket.leave(roomId);
+            socket.currentRoom = null;
+
+            // 更新房间用户列表
+            updateRoomUsers(roomId);
+
+            if (callback) {
+                callback({ success: true, message: '已离开房间' });
+            }
+        } catch (error) {
+            console.error('离开房间错误:', error);
+            if (callback) {
+                callback({ success: false, message: '离开房间失败' });
+            }
+        }
+    });
+
+    // 获取房间列表
+    socket.on('getRooms', (callback) => {
+        try {
+            const roomList = Array.from(rooms.values()).map(room => ({
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                createdBy: room.createdBy,
+                createdAt: room.createdAt,
+                userCount: room.users ? room.users.length : 0
+            }));
+
+            callback({ success: true, rooms: roomList });
+        } catch (error) {
+            console.error('获取房间列表错误:', error);
+            callback({ success: false, message: '获取房间列表失败' });
+        }
+    });
+
+    // 删除房间
+    socket.on('deleteRoom', (roomId, callback) => {
+        console.log(`收到删除房间请求: ${roomId}, 用户: ${socket.username}`);
+
+        // 确保回调函数存在
+        if (typeof callback !== 'function') {
+            console.error('删除房间错误: 回调函数未提供');
+            return;
+        }
+
+        // 设置安全超时，确保回调一定会被调用
+        const safetyTimeout = setTimeout(() => {
+            console.log(`删除房间安全超时触发，房间ID: ${roomId}`);
+            try {
+                callback({
+                    success: true,
+                    message: '房间删除处理超时，但操作可能已成功',
+                    timeout: true
+                });
+            } catch (err) {
+                console.error('安全超时回调调用失败:', err);
+            }
+        }, 8000);
+
+        try {
+            if (!socket.username) {
+                console.log('删除房间失败: 用户未登录');
+                clearTimeout(safetyTimeout);
+                callback({ success: false, message: '未登录' });
+                return;
+            }
+
+            // 检查房间是否存在
+            if (!rooms.has(roomId)) {
+                console.log(`删除房间失败: 房间 ${roomId} 不存在`);
+                clearTimeout(safetyTimeout);
+                callback({ success: false, message: '房间不存在' });
+                return;
+            }
+
+            const room = rooms.get(roomId);
+            console.log(`房间信息: ${JSON.stringify({
+                id: room.id,
+                name: room.name,
+                createdBy: room.createdBy
+            })}`);
+
+            // 检查是否是房间创建者
+            if (room.createdBy !== socket.username) {
+                console.log(`删除房间失败: 用户 ${socket.username} 不是房间 ${room.name} 的创建者`);
+                clearTimeout(safetyTimeout);
+                callback({ success: false, message: '只有房间创建者可以删除房间' });
+                return;
+            }
+
+            try {
+                // 通知所有在房间内的用户
+                console.log(`通知房间 ${room.name} 内的用户房间被删除`);
+                io.to(roomId).emit('message', formatMessage('系统', `房间 ${room.name} 已被创建者删除`, 'system'));
+
+                // 让所有用户离开房间
+                const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
+                if (socketsInRoom) {
+                    console.log(`房间 ${room.name} 中有 ${socketsInRoom.size} 个用户，让他们离开房间`);
+                    for (const socketId of socketsInRoom) {
+                        const clientSocket = io.sockets.sockets.get(socketId);
+                        if (clientSocket) {
+                            clientSocket.leave(roomId);
+                            if (clientSocket.currentRoom === roomId) {
+                                clientSocket.currentRoom = null;
+                            }
+                        }
+                    }
+                } else {
+                    console.log(`房间 ${room.name} 中没有用户`);
+                }
+
+                // 删除房间
+                console.log(`从房间列表中删除房间 ${room.name}`);
+                rooms.delete(roomId);
+
+                // 通知所有用户房间已被删除
+                console.log(`广播房间 ${room.name} 已被删除的消息`);
+                try {
+                    io.emit('roomDeleted', { roomId, roomName: room.name });
+                    console.log('广播房间删除消息成功');
+                } catch (broadcastError) {
+                    console.error('广播房间删除消息失败:', broadcastError);
+                    // 即使广播失败，我们也认为删除成功了
+                }
+
+                console.log(`房间 ${room.name} 删除成功`);
+
+                // 清除安全超时
+                clearTimeout(safetyTimeout);
+
+                // 确保回调函数被调用
+                try {
+                    callback({ success: true, message: '房间已删除' });
+                } catch (callbackError) {
+                    console.error('调用删除房间回调函数失败:', callbackError);
+                }
+            } catch (innerError) {
+                console.error(`删除房间 ${room.name} 过程中出错:`, innerError);
+                clearTimeout(safetyTimeout);
+                callback({ success: false, message: '删除房间过程中出错: ' + innerError.message });
+            }
+        } catch (error) {
+            console.error('删除房间错误:', error);
+            clearTimeout(safetyTimeout);
+            callback({ success: false, message: '删除房间失败: ' + error.message });
+        }
+    });
 
     // Listen for chatMessage
     socket.on('chatMessage', msg => {
         const currentUser = socket.username ? { nickname: socket.username } : user;
         console.log(`收到聊天消息 from ${currentUser ? currentUser.nickname : 'unknown'}:`, msg);
         if (currentUser) {
-            const formattedMessage = formatMessage(currentUser.nickname, msg, 'text');
-            console.log('发送格式化消息:', formattedMessage);
-            io.emit('message', formattedMessage);
+            // 如果用户在房间中，消息只发送到该房间
+            if (socket.currentRoom) {
+                const formattedMessage = formatMessage(currentUser.nickname, msg, 'text', null, socket.currentRoom);
+                console.log('发送格式化消息到房间:', formattedMessage);
+                io.to(socket.currentRoom).emit('message', formattedMessage);
+            } else {
+                // 用户不在房间中，提示需要先加入房间
+                socket.emit('message', formatMessage('系统', '请先加入或创建一个房间', 'system'));
+            }
         }
     });
 
@@ -360,10 +852,16 @@ io.on('connection', socket => {
         const currentUser = socket.username ? { nickname: socket.username } : user;
         console.log(`收到文件消息 from ${currentUser ? currentUser.nickname : 'unknown'}:`, fileInfo);
         if (currentUser) {
-            const message = `分享了文件: ${fileInfo.originalname}`;
-            const formattedMessage = formatMessage(currentUser.nickname, message, 'file', fileInfo);
-            console.log('发送文件消息:', formattedMessage);
-            io.emit('message', formattedMessage);
+            // 如果用户在房间中，消息只发送到该房间
+            if (socket.currentRoom) {
+                const message = `分享了文件: ${fileInfo.originalname}`;
+                const formattedMessage = formatMessage(currentUser.nickname, message, 'file', fileInfo, socket.currentRoom);
+                console.log('发送文件消息到房间:', formattedMessage);
+                io.to(socket.currentRoom).emit('message', formattedMessage);
+            } else {
+                // 用户不在房间中，提示需要先加入房间
+                socket.emit('message', formatMessage('系统', '请先加入或创建一个房间', 'system'));
+            }
         }
     });
 
@@ -372,9 +870,29 @@ io.on('connection', socket => {
         const currentUser = socket.username ? { nickname: socket.username } : user;
         console.log(`收到表情消息 from ${currentUser ? currentUser.nickname : 'unknown'}:`, emoji);
         if (currentUser) {
-            const formattedMessage = formatMessage(currentUser.nickname, emoji, 'emoji');
-            console.log('发送表情消息:', formattedMessage);
-            io.emit('message', formattedMessage);
+            // 如果用户在房间中，消息只发送到该房间
+            if (socket.currentRoom) {
+                const formattedMessage = formatMessage(currentUser.nickname, emoji, 'emoji', null, socket.currentRoom);
+                console.log('发送表情消息到房间:', formattedMessage);
+                io.to(socket.currentRoom).emit('message', formattedMessage);
+            } else {
+                // 用户不在房间中，提示需要先加入房间
+                socket.emit('message', formatMessage('系统', '请先加入或创建一个房间', 'system'));
+            }
+        }
+    });
+
+    // Listen for typing
+    socket.on('typing', (isTyping) => {
+        if (!socket.username) return;
+
+        // 如果用户在房间中，只向该房间广播
+        if (socket.currentRoom) {
+            socket.to(socket.currentRoom).emit('userTyping', {
+                username: socket.username,
+                isTyping,
+                roomId: socket.currentRoom
+            });
         }
     });
 
@@ -387,12 +905,89 @@ io.on('connection', socket => {
             // 从在线用户列表中移除
             onlineUsers.delete(socket.id);
 
-            // 广播离开消息
-            io.emit('message', formatMessage('系统', `${currentUser.nickname} 离开了聊天室`));
+            // 如果用户在房间中，通知房间其他用户
+            if (socket.currentRoom) {
+                socket.to(socket.currentRoom).emit('message', formatMessage('系统', `${currentUser.nickname} 离开了房间`, 'system', null, socket.currentRoom));
+                // 更新房间用户列表
+                updateRoomUsers(socket.currentRoom);
+            }
 
             // 广播更新的在线用户列表
             broadcastOnlineUsers();
+
+            // 从用户映射中移除
+            userSockets.delete(socket.userId);
+
+            // 设置用户状态为离线
+            io.emit('userStatus', {
+                userId: socket.userId,
+                status: 'offline'
+            });
         }
+    });
+
+    // 用户离开但保持连接
+    socket.on('away', () => {
+        if (socket.userId) {
+            // 设置用户状态为离开
+            io.emit('userStatus', {
+                userId: socket.userId,
+                status: 'away'
+            });
+        }
+    });
+
+    // 用户返回
+    socket.on('back', () => {
+        if (socket.userId) {
+            // 设置用户状态为在线
+            io.emit('userStatus', {
+                userId: socket.userId,
+                status: 'online'
+            });
+        }
+    });
+});
+
+// 创建logs目录（在服务器启动代码之前）
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// 未捕获的异常处理
+process.on('uncaughtException', (error) => {
+    console.error('未捕获的异常:', error);
+    // 记录错误日志
+    fs.appendFileSync(
+        path.join(__dirname, 'logs', 'error.log'),
+        `[${new Date().toISOString()}] Uncaught Exception: ${error.message}\n${error.stack}\n\n`
+    );
+});
+
+// Promise 拒绝处理
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('未处理的Promise拒绝:', reason);
+    // 记录错误日志
+    fs.appendFileSync(
+        path.join(__dirname, 'logs', 'error.log'),
+        `[${new Date().toISOString()}] Unhandled Rejection: ${reason}\n\n`
+    );
+});
+
+// 在所有路由之后、server.listen之前添加API错误处理中间件
+app.use((err, req, res, next) => {
+    console.error('API错误:', err);
+
+    // 记录错误日志
+    fs.appendFileSync(
+        path.join(__dirname, 'logs', 'api-error.log'),
+        `[${new Date().toISOString()}] ${req.method} ${req.url}: ${err.message}\n${err.stack}\n\n`
+    );
+
+    res.status(err.status || 500).json({
+        success: false,
+        message: process.env.NODE_ENV === 'production' ? '服务器错误' : err.message
     });
 });
 

@@ -5,8 +5,10 @@ const bcrypt = require('bcryptjs');
 class Database {
     constructor() {
         this.dbPath = path.join(__dirname, 'data', 'users.json');
+        this.messagesPath = path.join(__dirname, 'data', 'messages.json');
         this.ensureDataDirectory();
         this.users = this.loadUsers();
+        this.messages = this.loadMessages();
     }
 
     ensureDataDirectory() {
@@ -28,12 +30,38 @@ class Database {
         return [];
     }
 
+    loadMessages() {
+        try {
+            if (fs.existsSync(this.messagesPath)) {
+                const data = fs.readFileSync(this.messagesPath, 'utf8');
+                return JSON.parse(data);
+            }
+        } catch (error) {
+            console.error('加载消息数据失败:', error);
+        }
+        return [];
+    }
+
     saveUsers() {
         try {
             fs.writeFileSync(this.dbPath, JSON.stringify(this.users, null, 2));
+            // 每10次保存操作执行一次备份
+            if (Math.random() < 0.1) {
+                this.backupData();
+            }
             return true;
         } catch (error) {
             console.error('保存用户数据失败:', error);
+            return false;
+        }
+    }
+
+    saveMessages() {
+        try {
+            fs.writeFileSync(this.messagesPath, JSON.stringify(this.messages, null, 2));
+            return true;
+        } catch (error) {
+            console.error('保存消息数据失败:', error);
             return false;
         }
     }
@@ -172,6 +200,71 @@ class Database {
             console.error('验证密码失败:', error);
             return false;
         }
+    }
+
+    // 备份数据
+    backupData() {
+        try {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupPath = path.join(__dirname, 'data', `users-backup-${timestamp}.json`);
+            fs.copyFileSync(this.dbPath, backupPath);
+
+            // 保留最近10个备份
+            this.cleanupOldBackups();
+
+            return true;
+        } catch (error) {
+            console.error('数据备份失败:', error);
+            return false;
+        }
+    }
+
+    // 清理旧备份
+    cleanupOldBackups() {
+        try {
+            const dataDir = path.join(__dirname, 'data');
+            const backupFiles = fs.readdirSync(dataDir)
+                .filter(file => file.startsWith('users-backup-'))
+                .sort((a, b) => {
+                    // 按时间戳排序，最新的在前
+                    return fs.statSync(path.join(dataDir, b)).mtime.getTime() -
+                        fs.statSync(path.join(dataDir, a)).mtime.getTime();
+                });
+
+            // 删除旧备份，只保留最近10个
+            if (backupFiles.length > 10) {
+                backupFiles.slice(10).forEach(file => {
+                    fs.unlinkSync(path.join(dataDir, file));
+                });
+            }
+        } catch (error) {
+            console.error('清理旧备份失败:', error);
+        }
+    }
+
+    // 保存消息
+    saveMessage(message) {
+        try {
+            // 限制消息历史记录数量，只保留最近1000条
+            if (this.messages.length >= 1000) {
+                this.messages = this.messages.slice(-999);
+            }
+
+            this.messages.push(message);
+
+            // 异步保存，不阻塞主线程
+            setImmediate(() => this.saveMessages());
+
+            return true;
+        } catch (error) {
+            console.error('保存消息失败:', error);
+            return false;
+        }
+    }
+
+    // 获取最近的消息
+    getRecentMessages(limit = 50) {
+        return this.messages.slice(-limit);
     }
 }
 

@@ -1,0 +1,58 @@
+[
+  {
+    "username": "qwe",
+    "text": "123",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:36:56"
+  },
+  {
+    "username": "qwe",
+    "text": "123\\\\\\\\\\",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:37:02"
+  },
+  {
+    "username": "qwe",
+    "text": "123123]",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:37:14"
+  },
+  {
+    "username": "qwe",
+    "text": "1231231",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:37:16"
+  },
+  {
+    "username": "anpunph",
+    "text": "你好",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:46:22"
+  },
+  {
+    "username": "anpunph",
+    "text": "你好",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:55:15"
+  },
+  {
+    "username": "qwe",
+    "text": "123",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:55:56"
+  },
+  {
+    "username": "qwe",
+    "text": "你好",
+    "type": "text",
+    "fileInfo": null,
+    "time": "20:56:01"
+  }
+]
