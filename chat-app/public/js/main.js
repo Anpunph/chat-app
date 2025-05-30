@@ -59,8 +59,21 @@ const app = createApp({
             console.log('用户已登录，初始化聊天功能');
             this.initializeChat();
         }
+
+        // 隐藏页面加载状态指示器
+        this.hidePageLoader();
     },
     methods: {
+        // 隐藏页面加载状态指示器
+        hidePageLoader() {
+            const pageLoader = document.getElementById('pageLoader');
+            if (pageLoader) {
+                pageLoader.classList.add('hidden');
+                setTimeout(() => {
+                    pageLoader.style.display = 'none';
+                }, 500);
+            }
+        },
         async checkLoginStatus() {
             try {
                 const response = await fetch('/api/user');

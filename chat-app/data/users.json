@@ -12,5 +12,26 @@
     "password": "$2b$10$AwLGsPSIlre5.gSZQERV9u8zcBXqh5qaGdVZ1NU36u4GTVAEYfq96",
     "createdAt": "2025-05-27T12:19:09.634Z",
     "updatedAt": "2025-05-27T12:19:09.634Z"
+  },
+  {
+    "id": "1748590110747",
+    "nickname": "123",
+    "password": "$2b$10$1dN.05tg6u4a8iDO4MGo9e/UL6afYBb0hbMZihwNIF/1uYDu1sbau",
+    "createdAt": "2025-05-30T07:28:30.747Z",
+    "updatedAt": "2025-05-30T07:28:30.747Z"
+  },
+  {
+    "id": "1748590336003",
+    "nickname": "1234",
+    "password": "$2b$10$bhYujECpgniAV3iAbDAV6e3R2BQ81mb9BX4ZdiQvc4xeKFUd3ko7W",
+    "createdAt": "2025-05-30T07:32:16.003Z",
+    "updatedAt": "2025-05-30T07:32:16.003Z"
+  },
+  {
+    "id": "1748590639875",
+    "nickname": "12345",
+    "password": "$2b$10$TKTytWszwSTRDWaZ/g.N1eOPmhgmThi8ORwcaCK/RpWVSBw8X63mO",
+    "createdAt": "2025-05-30T07:37:19.875Z",
+    "updatedAt": "2025-05-30T07:37:19.875Z"
   }
 ]

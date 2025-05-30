@@ -303,6 +303,135 @@
             color: #56ccf2;
         }
 
+        /* 页面过渡效果 */
+        body.page-transition {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* 页面加载状态 */
+        .page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+
+        .page-loader.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 自定义弹窗样式 */
+        .custom-alert {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .custom-alert.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .custom-alert-content {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 350px;
+            padding: 30px;
+            text-align: center;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+            border: 1px solid rgba(86, 204, 242, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .custom-alert.active .custom-alert-content {
+            transform: translateY(0);
+        }
+
+        .custom-alert-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ff6b6b;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .custom-alert-message {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+
+        .custom-alert-button {
+            background: linear-gradient(135deg, #56ccf2 0%, #2f80ed 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(47, 128, 237, 0.1);
+        }
+
+        .custom-alert-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 14px rgba(47, 128, 237, 0.15);
+        }
+
         /* 响应式调整 */
         @media (max-width: 480px) {
             .auth-container {
@@ -325,6 +454,11 @@
 </head>
 
 <body>
+    <!-- 页面加载状态指示器 -->
+    <div class="page-loader" id="pageLoader">
+        <div class="loader"></div>
+    </div>
+
     <div id="app">
         <div class="auth-container">
             <div class="auth-header">
@@ -341,8 +475,19 @@
                         注册</div>
                 </div>
 
+                <!-- 自定义弹窗 -->
+                <div class="custom-alert" v-if="showCustomAlert" :class="{ active: showCustomAlert }">
+                    <div class="custom-alert-content">
+                        <div class="custom-alert-icon">
+                            <i :class="customAlertIcon"></i>
+                        </div>
+                        <div class="custom-alert-message">{{ customAlertMessage }}</div>
+                        <button class="custom-alert-button" @click="closeCustomAlert">确定</button>
+                    </div>
+                </div>
+
                 <!-- 登录表单 -->
-                <form class="auth-form" :class="{ active: activeTab === 'login' }" v-show="activeTab === 'login'"
+                <form class="auth-form" :class="{ active: activeTab === 'login' }" v-if="activeTab === 'login'"
                     @submit.prevent="handleLogin">
                     <div class="form-group">
                         <label>昵称</label>
@@ -362,7 +507,7 @@
                 </form>
 
                 <!-- 注册表单 -->
-                <form class="auth-form" :class="{ active: activeTab === 'register' }" v-show="activeTab === 'register'"
+                <form class="auth-form" :class="{ active: activeTab === 'register' }" v-if="activeTab === 'register'"
                     @submit.prevent="handleRegister">
                     <div class="form-group">
                         <label>昵称</label>

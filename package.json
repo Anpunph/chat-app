@@ -2,9 +2,9 @@
   "name": "chat-app",
   "version": "1.0.0",
   "description": "Simple web chat application",
-  "main": "server.js",
+  "main": "chat-app/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node chat-app/server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

@@ -20,7 +20,11 @@ createApp({
                 login: false,
                 register: false,
                 confirmRegister: false
-            }
+            },
+            // 自定义弹窗数据
+            showCustomAlert: false,
+            customAlertMessage: '',
+            customAlertIcon: 'fas fa-exclamation-circle'
         };
     },
     mounted() {
@@ -29,6 +33,10 @@ createApp({
             loginForm: this.loginForm,
             registerForm: this.registerForm
         });
+
+        // 隐藏页面加载状态指示器
+        this.hidePageLoader();
+
         // 检查是否已经登录
         this.checkLoginStatus();
 
@@ -36,6 +44,17 @@ createApp({
         this.addPageAnimations();
     },
     methods: {
+        // 隐藏页面加载状态指示器
+        hidePageLoader() {
+            const pageLoader = document.getElementById('pageLoader');
+            if (pageLoader) {
+                pageLoader.classList.add('hidden');
+                setTimeout(() => {
+                    pageLoader.style.display = 'none';
+                }, 500);
+            }
+        },
+
         // 添加页面动画效果
         addPageAnimations() {
             // 表单输入框获得焦点时的动画
@@ -138,8 +157,21 @@ createApp({
 
                     // 延迟跳转，让用户看到成功消息
                     setTimeout(() => {
-                        window.location.href = '/';
-                    }, 1000);
+                        // 添加页面过渡效果
+                        document.body.classList.add('page-transition');
+
+                        // 预加载主页
+                        const preloadLink = document.createElement('link');
+                        preloadLink.rel = 'preload';
+                        preloadLink.href = '/';
+                        preloadLink.as = 'document';
+                        document.head.appendChild(preloadLink);
+
+                        // 延迟后跳转
+                        setTimeout(() => {
+                            window.location.href = '/';
+                        }, 300);
+                    }, 800);
                 } else {
                     ElMessage({
                         message: data.message || '登录失败',
@@ -267,10 +299,17 @@ createApp({
                         }
                     }, 1000);
                 } else {
-                    ElMessage({
-                        message: data.message || '注册失败',
-                        type: 'error'
-                    });
+                    // 检查是否是昵称已存在的错误
+                    if (data.message && (data.message.includes('昵称已存在') || data.message.includes('已被使用'))) {
+                        // 使用自定义弹窗提示昵称已存在
+                        this.showAlert('该昵称已被注册，请更换一个新昵称', 'fas fa-user-times');
+                    } else {
+                        // 其他错误使用 ElementUI 消息提示
+                        ElMessage({
+                            message: data.message || '注册失败',
+                            type: 'error'
+                        });
+                    }
 
                     // 恢复按钮状态
                     if (registerButton) {
@@ -323,6 +362,22 @@ createApp({
                     iconElement.classList.add('fa-eye');
                 }
             }
+        },
+
+        // 显示自定义弹窗
+        showAlert(message, icon = 'fas fa-exclamation-circle') {
+            this.customAlertMessage = message;
+            this.customAlertIcon = icon;
+            this.showCustomAlert = true;
+
+            // 添加弹窗动画效果
+            document.body.style.overflow = 'hidden'; // 防止背景滚动
+        },
+
+        // 关闭自定义弹窗
+        closeCustomAlert() {
+            this.showCustomAlert = false;
+            document.body.style.overflow = ''; // 恢复背景滚动
         }
     }
 }).mount('#app');
